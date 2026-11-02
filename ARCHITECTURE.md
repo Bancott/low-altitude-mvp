@@ -12,7 +12,8 @@
 - 用 Vue 3 组织界面、状态和交互；
 - 用前端模拟数据驱动“实时态势 + 时间回放 + 告警”；
 - 用 CSS 设计令牌实现浅色 / 深色 / 跟随系统三种主题；
-- 支持专注模式：隐藏左右面板，把可视区域让给地图；
+- 采用“地图优先”布局：一个可收起侧栏 + 按需出现的详情卡；
+- 空域名称不常驻地图，统一放在侧栏和详情卡里，避免标签压图；
 - 当前没有后端，所有数据在浏览器里计算，适合课程演示和后续扩展。
 
 技术栈：
@@ -35,7 +36,7 @@
 flowchart LR
   A["scenario.ts<br/>空域 / 航线 / 无人机 / 告警事件"] --> B["App.vue<br/>页面状态 + 交互编排"]
   B --> C["LowAltitudeScene.ts<br/>Cesium 场景与图层"]
-  B --> D["UI 组件与 styles.css<br/>面板 / 时间轴 / 主题"]
+  B --> D["UI 组件与 styles.css<br/>侧栏 / 详情卡 / 时间轴 / 主题"]
   E["useTheme.ts<br/>主题模式与系统偏好"] --> D
   E --> B
   C --> F["Cesium Viewer<br/>地图 / 实体 / 拾取 / 相机"]
@@ -61,7 +62,7 @@ Cesium Entity 属性更新（位置、颜色、标签、告警高亮）
 用户点击地图
   → LowAltitudeScene 拾取 Entity
   → onSelect(selection)
-  → App.vue 更新 selected / 右侧详情
+  → App.vue 更新 selected / 详情卡
 ```
 
 ---
@@ -105,11 +106,11 @@ low-altitude-mvp/
 │  ├─ favicon.svg              # 站点图标
 │  └─ models/                  # 预留：无人机 glTF / 3D Tiles 模型
 ├─ docs/
-│  ├─ preview-dark.png         # README 截图
-│  ├─ preview-light.png
-│  ├─ preview-city.png
-│  ├─ preview-design.png
-│  └─ preview-alerts.png
+│  ├─ preview-light.png         # README 截图
+│  ├─ preview-dark.png
+│  ├─ preview-detail.png
+│  ├─ preview-layers.png
+│  └─ preview-design.png
 └─ src/
    ├─ main.ts                  # 创建 Vue 应用，挂载 App
    ├─ App.vue                  # 页面布局、状态、交互、时间轴、主题切换
@@ -129,10 +130,10 @@ low-altitude-mvp/
 
 页面级“总控”，负责：
 
-- 页面结构：顶栏、左右面板、地图覆盖层、底栏时间轴、底图设计弹窗；
-- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`rightTab`、`layerState`、`viewPreset`、`scenarioMode`、`panelsVisible`；
-- 交互：播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、底图切换、主题切换、专注模式；
-- 与 Cesium 的连接：调用 `scene.update()`、`scene.select()`、`scene.focus()`、`scene.setViewPreset()`；
+- 页面结构：顶栏、可收起侧栏、按需出现的详情卡、底栏时间轴、底图设计弹窗；
+- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`sidebarTab`、`sidebarOpen`、`layerState`、`layersOpen`；
+- 交互：侧栏页签、播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、图层弹层、底图切换、主题切换、侧栏收起；
+- 与 Cesium 的连接：调用 `scene.update()`、`scene.select()`、`scene.focus()`、`scene.setLayerVisible()`；
 - 计算派生数据：`selectedDronePos`、`activeAlerts`、`targetRows`、`alertListAll`。
 
 学习建议：先看 `<script setup>` 里的状态和函数，再看 `<template>` 中它们如何被使用。
@@ -142,14 +143,13 @@ low-altitude-mvp/
 Cesium 场景封装，负责：
 
 - `init()`：创建 Viewer、配置场景、加载底图、构建所有图层；
-- `buildAirspaces()`：空域体（Polygon + 顶/底/竖边 + 标签）；
+- `buildAirspaces()`：空域体（Polygon + 顶/底/竖边）；
 - `buildRoutes()`：航线虚线；
-- `buildDrones()`：无人机 Billboard、标签；
-- `buildFacilities()`：运行管理中心、起降点；
-- `buildCityLabels()`：全市视角的区级标签；
+- `buildDrones()`：无人机 Billboard；
+- `buildFacilities()`：运行管理中心、起降点图标；
 - `update(time, alerts)`：根据模拟时间更新无人机位置、朝向、告警颜色、尾迹；
 - `select()` / `focus()` / `follow()`：选中、定位、跟随；
-- `setViewPreset()`：全市 / 片区 / 重点；
+- `resetView()`：复位默认视角；
 - `setBasemap()`：暗色 / 浅色 / 卫星；
 - `setLayerVisible()`：图层开关；
 - `destroy()`：销毁 Viewer、事件和监听器。
@@ -159,7 +159,6 @@ Cesium 场景封装，负责：
 ```ts
 type Selection = { kind: 'drone' | 'airspace'; id: string } | null;
 type BasemapStyle = 'dark' | 'light' | 'satellite';
-type ViewPreset = 'city' | 'district' | 'focus';
 type CameraInfo = { lon: number; lat: number; height: number; heading: number };
 ```
 
@@ -190,10 +189,10 @@ type CameraInfo = { lon: number; lat: number; height: number; heading: number };
 
 1. **设计令牌**：`:root` / `[data-theme='dark']` 中的颜色、圆角、阴影、字体；
 2. **基础样式**：`body`、按钮、输入框、Cesium 覆盖；
-3. **布局**：顶栏、工作区、左右面板、底栏时间轴；
-4. **组件**：任务卡、图层、空域列表、对象卡、告警、底图菜单、设计弹窗；
+3. **布局**：顶栏、侧栏、地图工具条、详情卡、底栏时间轴；
+4. **组件**：侧栏页签、空域/目标/告警列表、详情卡、图层弹层、底图菜单、设计弹窗；
 5. **响应式**：1440 / 1180 / 900 / 800 高度；
-6. **动画**：面板进入、Toast、主题过渡；`prefers-reduced-motion` 降级。
+6. **动画**：侧栏、Toast、主题过渡；`prefers-reduced-motion` 降级。
 
 做主题时优先改 CSS 变量，不要在组件里写死颜色。
 
@@ -362,7 +361,7 @@ html[data-theme='dark'] {
 }
 ```
 
-界面列表、图例、Cesium 图层会自动读取，不需要改 UI。
+界面列表、Cesium 图层会自动读取，不需要改 UI。
 
 ### 8.2 新增一架无人机
 
@@ -370,7 +369,7 @@ html[data-theme='dark'] {
 
 - `route` 至少两个点；
 - `phase` 控制初始进度（0–1）；
-- 新目标会自动出现在右侧“目标”页签和地图上。
+- 新目标会自动出现在左侧“目标”页签和地图上。
 
 ### 8.3 新增主题
 
@@ -411,7 +410,7 @@ private async buildBuildings(): Promise<void> {
 
 建议：
 
-- 只在“重点”视角加载，避免全市视角性能压力；
+- 只在近距离/重点区域加载，避免远景性能压力；
 - 用 `Cesium3DTileStyle` 按建筑高度着色；
 - 建筑模型可以先用白模，后续换倾斜摄影；
 - 注意 3D Tiles 的坐标系和高度基准。

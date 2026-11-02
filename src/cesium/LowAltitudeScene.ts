@@ -12,7 +12,6 @@ import {
 export type Selection = { kind: 'drone' | 'airspace'; id: string } | null;
 export type BasemapStyle = 'dark' | 'light' | 'satellite';
 export type LayerKey = 'airspace' | 'routes' | 'drones' | 'trails' | 'alerts';
-export type ViewPreset = 'city' | 'district' | 'focus';
 export type CameraInfo = { lon: number; lat: number; height: number; heading: number };
 
 interface SceneOptions {
@@ -26,7 +25,6 @@ interface AirspaceView {
   top: Cesium.Entity;
   bottom: Cesium.Entity;
   verticals: Cesium.Entity[];
-  label: Cesium.Entity;
   alert: boolean;
 }
 
@@ -131,7 +129,6 @@ export class LowAltitudeScene {
     this.buildDrones();
     this.buildRoutes();
     this.buildFacilities();
-    this.buildCityLabels();
     this.bindEvents();
     this.resetView(false);
     this.viewer.resize();
@@ -200,7 +197,6 @@ export class LowAltitudeScene {
         view.volume.show = visible;
         view.top.show = visible;
         view.bottom.show = visible;
-        view.label.show = visible;
         view.verticals.forEach((item) => (item.show = visible));
       }
     }
@@ -365,19 +361,17 @@ export class LowAltitudeScene {
       return;
     }
     this.viewer.scene.mode = Cesium.SceneMode.SCENE3D;
-    this.setViewPreset('district');
+    this.resetView();
   }
 
-  setViewPreset(preset: ViewPreset, animate = true): void {
+  resetView(animate = true): void {
     if (!this.viewer) return;
+    this.viewer.trackedEntity = undefined;
 
     if (this.viewer.scene.mode === Cesium.SceneMode.SCENE2D) {
-      const rectangles: Record<ViewPreset, Cesium.Rectangle> = {
-        city: Cesium.Rectangle.fromDegrees(113.75, 22.40, 114.20, 22.70),
-        district: Cesium.Rectangle.fromDegrees(113.84, 22.46, 114.01, 22.60),
-        focus: Cesium.Rectangle.fromDegrees(113.89, 22.49, 113.99, 22.57)
-      };
-      this.viewer.camera.setView({ destination: rectangles[preset] });
+      this.viewer.camera.setView({
+        destination: Cesium.Rectangle.fromDegrees(113.84, 22.46, 114.01, 22.60)
+      });
       this.cameraInfo = {
         lon: CENTER.lon,
         lat: CENTER.lat,
@@ -388,41 +382,21 @@ export class LowAltitudeScene {
       return;
     }
 
-    const config: Record<ViewPreset, { latOffset: number; height: number; pitch: number }> = {
-      city: { latOffset: 0.135, height: 30000, pitch: -65 },
-      district: { latOffset: 0.036, height: 8600, pitch: -64 },
-      focus: { latOffset: 0.018, height: 4300, pitch: -59 }
-    };
-    const target = config[preset];
-    const destination = Cesium.Cartesian3.fromDegrees(
-      CENTER.lon,
-      CENTER.lat - target.latOffset,
-      target.height
-    );
+    const destination = Cesium.Cartesian3.fromDegrees(CENTER.lon, CENTER.lat - 0.036, 8600);
     const orientation = {
       heading: 0,
-      pitch: Cesium.Math.toRadians(target.pitch),
+      pitch: Cesium.Math.toRadians(-64),
       roll: 0
     };
 
-    this.viewer.trackedEntity = undefined;
     if (animate) {
-      this.viewer.camera.flyTo({ destination, orientation, duration: 1.2 });
+      this.viewer.camera.flyTo({ destination, orientation, duration: 1.1 });
     } else {
       this.viewer.camera.setView({ destination, orientation });
     }
 
-    this.cameraInfo = {
-      lon: CENTER.lon,
-      lat: CENTER.lat,
-      height: target.height,
-      heading: 0
-    };
+    this.cameraInfo = { lon: CENTER.lon, lat: CENTER.lat, height: 8600, heading: 0 };
     this.options.onCameraChange?.({ ...this.cameraInfo });
-  }
-
-  resetView(animate = true): void {
-    this.setViewPreset('district', animate);
   }
 
   destroy(): void {
@@ -550,29 +524,7 @@ export class LowAltitudeScene {
         })
       );
 
-      const center = airspaceCentroid(airspace);
-      const label = this.viewer.entities.add({
-        id: `airspace:${airspace.id}:label`,
-        position: Cesium.Cartesian3.fromDegrees(center.lon, center.lat, airspace.maxAlt + 42),
-        label: {
-          text: airspace.name,
-          font: '600 11px "Inter", "Microsoft YaHei", "PingFang SC", sans-serif',
-          fillColor: Cesium.Color.fromCssColorString('#1F2937'),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 0,
-          style: Cesium.LabelStyle.FILL,
-          showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.9),
-          backgroundPadding: new Cesium.Cartesian2(7, 3),
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, 12),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 16000)
-        }
-      });
-
-      this.airspaces.push({ airspace, volume, top, bottom, verticals, label, alert: false });
+      this.airspaces.push({ airspace, volume, top, bottom, verticals, alert: false });
     }
   }
 
@@ -689,41 +641,6 @@ export class LowAltitudeScene {
     }
   }
 
-  private buildCityLabels(): void {
-    if (!this.viewer) return;
-
-    const districts = [
-      { name: '南山', lon: 113.930, lat: 22.535 },
-      { name: '前海', lon: 113.880, lat: 22.535 },
-      { name: '宝安', lon: 113.820, lat: 22.610 },
-      { name: '福田', lon: 114.055, lat: 22.540 },
-      { name: '罗湖', lon: 114.120, lat: 22.548 },
-      { name: '深圳湾', lon: 113.940, lat: 22.490 }
-    ];
-
-    for (const district of districts) {
-      this.viewer.entities.add({
-        id: `city-label:${district.name}`,
-        position: Cesium.Cartesian3.fromDegrees(district.lon, district.lat, 80),
-        label: {
-          text: district.name,
-          font: '500 12px "Inter", "Microsoft YaHei", "PingFang SC", sans-serif',
-          fillColor: Cesium.Color.fromCssColorString('#475569'),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 0,
-          style: Cesium.LabelStyle.FILL,
-          showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.82),
-          backgroundPadding: new Cesium.Cartesian2(6, 2),
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(12000, 90000)
-        }
-      });
-    }
-  }
-
   private buildFacilities(): void {
     if (!this.viewer) return;
 
@@ -744,32 +661,16 @@ export class LowAltitudeScene {
       position: Cesium.Cartesian3.fromDegrees(CENTER.lon, CENTER.lat, 24),
       billboard: {
         image: commandIcon(),
-        width: 44,
-        height: 44,
+        width: 42,
+        height: 42,
         disableDepthTestDistance: Number.POSITIVE_INFINITY
-      },
-      label: {
-        text: '低空运行管理中心',
-        font: '600 11px "Inter", "Microsoft YaHei", "PingFang SC", sans-serif',
-        fillColor: Cesium.Color.fromCssColorString('#0F172A'),
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: 0,
-        style: Cesium.LabelStyle.FILL,
-        showBackground: true,
-        backgroundColor: Cesium.Color.WHITE.withAlpha(0.92),
-        backgroundPadding: new Cesium.Cartesian2(7, 3),
-        pixelOffset: new Cesium.Cartesian2(0, -28),
-        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 13000)
       }
     });
 
     const vertiports = [
-      { lon: 113.900, lat: 22.520, name: '起降点 A' },
-      { lon: 113.960, lat: 22.545, name: '起降点 B' },
-      { lon: 113.925, lat: 22.558, name: '起降点 C' }
+      { lon: 113.900, lat: 22.520 },
+      { lon: 113.960, lat: 22.545 },
+      { lon: 113.925, lat: 22.558 }
     ];
 
     const portEntities = vertiports.map((port) =>
@@ -777,25 +678,9 @@ export class LowAltitudeScene {
         position: Cesium.Cartesian3.fromDegrees(port.lon, port.lat, 28),
         billboard: {
           image: helipadIcon(),
-          width: 30,
-          height: 30,
+          width: 26,
+          height: 26,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
-        },
-        label: {
-          text: port.name,
-          font: '500 10px "Inter", "Microsoft YaHei", "PingFang SC", sans-serif',
-          fillColor: Cesium.Color.fromCssColorString('#475569'),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 0,
-          style: Cesium.LabelStyle.FILL,
-          showBackground: true,
-          backgroundColor: Cesium.Color.WHITE.withAlpha(0.86),
-          backgroundPadding: new Cesium.Cartesian2(5, 2),
-          pixelOffset: new Cesium.Cartesian2(0, 18),
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.TOP,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 12000)
         }
       })
     );
@@ -827,7 +712,7 @@ export class LowAltitudeScene {
     }
 
     if (view.entity.label) {
-      view.entity.label.show = new Cesium.ConstantProperty(view.alert || view.selected);
+      view.entity.label.show = new Cesium.ConstantProperty(view.selected);
       view.entity.label.text = new Cesium.ConstantProperty(
         view.alert ? `${view.drone.callsign} · 告警` : view.drone.callsign
       );
@@ -894,16 +779,6 @@ export class LowAltitudeScene {
           accent.withAlpha(selected ? 0.18 : 0.08)
         );
       }
-    }
-
-    if (view.label.label) {
-      view.label.label.fillColor = new Cesium.ConstantProperty(
-        view.alert ? red : Cesium.Color.fromCssColorString('#1F2937')
-      );
-      view.label.label.backgroundColor = new Cesium.ConstantProperty(
-        Cesium.Color.WHITE.withAlpha(selected || view.alert ? 0.96 : 0.9)
-      );
-      view.label.label.scale = new Cesium.ConstantProperty(selected ? 1.02 : 0.94);
     }
   }
 
