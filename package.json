@@ -8,14 +8,17 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "vue-tsc --noEmit",
-    "postinstall": "node scripts/copy-cesium.mjs"
+    "postinstall": "node scripts/copy-cesium.mjs",
+    "buildings": "node --experimental-sqlite scripts/extract-buildings.mjs"
   },
   "dependencies": {
     "cesium": "^1.146.0",
     "vue": "^3.5.44"
   },
   "devDependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
     "@vitejs/plugin-vue": "^6.0.10",
+    "pbf": "^5.1.2",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
     "vue-tsc": "^3.3.14"

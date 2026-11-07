@@ -8,10 +8,15 @@ export interface Airspace {
   color: string;
   minAlt: number;
   maxAlt: number;
-  polygon: [number, number][];
+  /** 1 个或多个外环；空域 = 这些环向上拉伸的棱柱集合 */
+  polygons: [number, number][][];
   description: string;
   authority: string;
   status: string;
+  /** 来源：内置示例 / 手绘 / 导入 */
+  source?: 'builtin' | 'drawn' | 'imported';
+  /** 生效时间窗（秒，对应模拟时间轴），留空表示全程生效 */
+  window?: { from: number; to: number };
 }
 
 export interface RoutePoint {
@@ -102,11 +107,13 @@ export const AIRSPACES: Airspace[] = [
     color: '#4F7DF3',
     minAlt: 0,
     maxAlt: 300,
-    polygon: [
-      [113.895, 22.510],
-      [113.970, 22.510],
-      [113.972, 22.565],
-      [113.900, 22.568]
+    polygons: [
+      [
+        [113.895, 22.510],
+        [113.970, 22.510],
+        [113.972, 22.565],
+        [113.900, 22.568]
+      ]
     ],
     description: '南山核心区低空管制空域，覆盖物流、巡检和应急飞行活动。',
     authority: '深圳市低空运行管理中心',
@@ -120,11 +127,13 @@ export const AIRSPACES: Airspace[] = [
     color: '#2BB6A8',
     minAlt: 0,
     maxAlt: 120,
-    polygon: [
-      [113.872, 22.505],
-      [113.925, 22.505],
-      [113.925, 22.548],
-      [113.872, 22.548]
+    polygons: [
+      [
+        [113.872, 22.505],
+        [113.925, 22.505],
+        [113.925, 22.548],
+        [113.872, 22.548]
+      ]
     ],
     description: '前海片区轻型无人机适飞空域，默认限高 120m。',
     authority: '深圳市低空运行管理中心',
@@ -138,13 +147,15 @@ export const AIRSPACES: Airspace[] = [
     color: '#E5484D',
     minAlt: 0,
     maxAlt: 300,
-    polygon: [
-      [113.920, 22.508],
-      [113.945, 22.505],
-      [113.956, 22.515],
-      [113.948, 22.526],
-      [113.928, 22.523],
-      [113.918, 22.515]
+    polygons: [
+      [
+        [113.920, 22.508],
+        [113.945, 22.505],
+        [113.956, 22.515],
+        [113.948, 22.526],
+        [113.928, 22.523],
+        [113.918, 22.515]
+      ]
     ],
     description: '因重大活动保障划设的临时禁飞区，活动期间禁止一切未授权飞行。',
     authority: '深圳市公安局低空警务支队',
@@ -158,11 +169,13 @@ export const AIRSPACES: Airspace[] = [
     color: '#E49A2F',
     minAlt: 0,
     maxAlt: 150,
-    polygon: [
-      [113.942, 22.532],
-      [113.962, 22.532],
-      [113.962, 22.552],
-      [113.942, 22.552]
+    polygons: [
+      [
+        [113.942, 22.532],
+        [113.962, 22.532],
+        [113.962, 22.552],
+        [113.942, 22.552]
+      ]
     ],
     description: '人才公园灯光秀期间临时限制区，飞行高度不得超过 150m。',
     authority: '南山区低空经济工作专班',
@@ -413,126 +426,6 @@ export function positionAt(drone: Drone, time: number): DronePosition {
   const last = drone.route[drone.route.length - 1];
   return { lon: last.lon, lat: last.lat, alt: last.alt, heading: 0, progress: u };
 }
-
-export function pointInPolygon(lon: number, lat: number, polygon: [number, number][]): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const [xi, yi] = polygon[i];
-    const [xj, yj] = polygon[j];
-    const intersects = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
-
-export function airspaceCentroid(airspace: Airspace): { lon: number; lat: number } {
-  const sum = airspace.polygon.reduce(
-    (acc, [lon, lat]) => ({ lon: acc.lon + lon, lat: acc.lat + lat }),
-    { lon: 0, lat: 0 }
-  );
-  return {
-    lon: sum.lon / airspace.polygon.length,
-    lat: sum.lat / airspace.polygon.length
-  };
-}
-
-export function buildAlertEvents(duration = SIM_DURATION): AlertEvent[] {
-  const events: AlertEvent[] = [];
-
-  for (const drone of DRONES) {
-    const active = new Map<string, { start: number; end: number; airspace: Airspace; type: AlertEvent['type'] }>();
-
-    for (let t = 0; t <= duration; t += 1) {
-      const pos = positionAt(drone, t);
-      const hits = new Map<string, { airspace: Airspace; type: AlertEvent['type'] }>();
-
-      for (const airspace of AIRSPACES) {
-        const inside = pointInPolygon(pos.lon, pos.lat, airspace.polygon);
-        if (!inside) continue;
-
-        if (airspace.kind === 'no-fly' && pos.alt >= airspace.minAlt && pos.alt <= airspace.maxAlt) {
-          hits.set(`nfz:${airspace.id}`, { airspace, type: 'NO_FLY_INTRUSION' });
-        }
-
-        if (airspace.kind === 'advisory' && pos.alt > airspace.maxAlt) {
-          hits.set(`alt:${airspace.id}`, { airspace, type: 'ALTITUDE_DEVIATION' });
-        }
-
-        if (airspace.kind === 'temporary' && pos.alt > airspace.maxAlt) {
-          hits.set(`tmp:${airspace.id}`, { airspace, type: 'TEMP_RESTRICTION' });
-        }
-      }
-
-      for (const [key, hit] of hits) {
-        const current = active.get(key);
-        if (current) {
-          current.end = t;
-        } else {
-          active.set(key, { start: t, end: t, airspace: hit.airspace, type: hit.type });
-        }
-      }
-
-      for (const [key, current] of [...active]) {
-        if (!hits.has(key)) {
-          events.push(toAlertEvent(drone, current.airspace, current.type, current.start, current.end));
-          active.delete(key);
-        }
-      }
-    }
-
-    for (const current of active.values()) {
-      events.push(toAlertEvent(drone, current.airspace, current.type, current.start, current.end));
-    }
-  }
-
-  if (events.length === 0) {
-    const drone = DRONES[0];
-    const airspace = AIRSPACES.find((item) => item.kind === 'no-fly') ?? AIRSPACES[0];
-    events.push(toAlertEvent(drone, airspace, 'NO_FLY_INTRUSION', 38, 62));
-  }
-
-  return events
-    .map((event, index) => ({ ...event, id: `AL-${String(index + 1).padStart(3, '0')}` }))
-    .sort((a, b) => a.start - b.start)
-    .slice(0, 8);
-}
-
-function toAlertEvent(
-  drone: Drone,
-  airspace: Airspace,
-  type: AlertEvent['type'],
-  start: number,
-  end: number
-): AlertEvent {
-  const title =
-    type === 'NO_FLY_INTRUSION'
-      ? '闯入临时禁飞区'
-      : type === 'ALTITUDE_DEVIATION'
-        ? '超出适飞高度'
-        : '进入临时限制区';
-
-  const level: AlertEvent['level'] = type === 'NO_FLY_INTRUSION' ? 'critical' : 'warning';
-  const message =
-    type === 'NO_FLY_INTRUSION'
-      ? `${drone.callsign} 进入 ${airspace.name}，请立即处置`
-      : `${drone.callsign} 在 ${airspace.name} 内超出 ${airspace.maxAlt}m 限高`;
-
-  return {
-    id: '',
-    droneId: drone.id,
-    droneCallsign: drone.callsign,
-    airspaceId: airspace.id,
-    airspaceName: airspace.name,
-    type,
-    level,
-    title,
-    message,
-    start,
-    end: Math.max(start + 1, end)
-  };
-}
-
-export const ALERT_EVENTS = buildAlertEvents();
 
 export function formatClock(seconds: number): string {
   const date = new Date(BASE_TIME + seconds * 1000);

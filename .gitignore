@@ -3,3 +3,10 @@ dist/
 public/cesium/
 *.local
 .DS_Store
+
+# 本地底图数据与工具链
+.cache/
+
+# 调试用的临时截图与浏览器配置
+.shots/
+.tmp/

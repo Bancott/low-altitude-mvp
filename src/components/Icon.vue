@@ -90,8 +90,15 @@ const icons: Record<string, IconShape[]> = {
     { d: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z' },
     { d: 'M12 11.5a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1Z', fill: true }
   ],
-  chevron: [{ d: 'm9 18 6-6-6-6' }],
-  clock: [
+  eye: [
+    { d: 'M2.6 12S6.2 5.6 12 5.6 21.4 12 21.4 12 17.8 18.4 12 18.4 2.6 12 2.6 12Z' },
+    { d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z' }
+  ],
+  move: [
+    { d: 'M12 3v18M3 12h18' },
+    { d: 'm9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3' }
+  ],
+  chevron: [{ d: 'm9 18 6-6-6-6' }],  clock: [
     { d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z' },
     { d: 'M12 7v5l3 2' }
   ],
@@ -123,7 +130,21 @@ const icons: Record<string, IconShape[]> = {
     { d: 'M4 4h16v16H4z' },
     { d: 'M9.5 4v16' },
     { d: 'M9.5 12h10.5' }
-  ]
+  ],
+  upload: [
+    { d: 'M12 16V4' },
+    { d: 'm7 9 5-5 5 5' },
+    { d: 'M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3' }
+  ],
+  routePlan: [
+    { d: 'M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z' },
+    { d: 'M20 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z' },
+    { d: 'M6 15V9a3 3 0 0 1 3-3h6' },
+    { d: 'm13 4 2 2-2 2' }
+  ],
+  plus: [{ d: 'M12 5v14M5 12h14' }],
+  minus: [{ d: 'M5 12h14' }],
+  check: [{ d: 'm5 12.5 4.5 4.5L19 6.5' }]
 };
 
 const shapes = computed(() => icons[props.name] ?? []);
@@ -137,7 +158,7 @@ const shapes = computed(() => icons[props.name] ?? []);
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    stroke-width="1.8"
+    stroke-width="2.05"
     stroke-linecap="round"
     stroke-linejoin="round"
     aria-hidden="true"

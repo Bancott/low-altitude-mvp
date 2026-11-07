@@ -121,18 +121,25 @@ low-altitude-mvp/
    ├─ composables/
    │  └─ useTheme.ts           # 浅色 / 深色 / 跟随系统
    ├─ data/
-   │  └─ scenario.ts           # 空域、航线、无人机、告警规则与事件
+   │  ├─ scenario.ts          # 内置示例数据（空域 / 航线 / 无人机）与运动学函数
+   │  ├─ airspaceStore.ts     # 空域数据层：响应式列表 + 增删改 + 版本号
+   │  ├─ alerts.ts            # 告警时间线：按当前空域实时重算
+   │  └─ geometry.ts          # 纯几何：点在环内、重心、面积
    └─ cesium/
-      └─ LowAltitudeScene.ts   # Cesium 场景、图层、拾取、相机、底图
+      ├─ LowAltitudeScene.ts  # Cesium 场景、无人机 / 航线 / 设施、拾取、相机、底图
+      └─ AirspaceLayer.ts     # 空域渲染层：按 id 差异同步实体、选中 / 告警 / 显隐
 ```
+
+**空域的三层分工**：`airspaceStore` 只存可序列化数据（导入导出、撤销重做都靠它），`AirspaceLayer` 只负责把数据变成 Cesium 实体，`geometry.ts` 提供与渲染无关的几何判断（路径规划、冲突检测直接复用）。新增手绘或导入时，只需改 store，场景每帧比对 `airspaceRevision` 自动同步。
 
 ### 4.1 `src/App.vue`
 
 页面级“总控”，负责：
 
-- 页面结构：顶栏、可收起侧栏、按需出现的详情卡、底栏时间轴、底图设计弹窗；
-- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`sidebarTab`、`sidebarOpen`、`layerState`、`layersOpen`；
-- 交互：侧栏页签、播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、图层弹层、底图切换、主题切换、侧栏收起；
+- 页面结构：悬浮顶栏、可收起侧栏、按需出现的详情卡、右侧图层柱、底图抽屉、底栏时间轴、底图设计弹窗；
+- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`sidebarTab`、`sidebarOpen`、`layerState`、`drawerOpen`、`glitch`；
+- 交互：侧栏页签、播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、图层柱、底图抽屉、主题切换、侧栏收起、缩放；
+- 动效：`useAmbientParticles` 环境粒子、指针视差（`--px/--py`）、页签滑块、列表交错、告警故障闪；
 - 与 Cesium 的连接：调用 `scene.update()`、`scene.select()`、`scene.focus()`、`scene.setLayerVisible()`；
 - 计算派生数据：`selectedDronePos`、`activeAlerts`、`targetRows`、`alertListAll`。
 
@@ -363,6 +370,8 @@ html[data-theme='dark'] {
 
 界面列表、Cesium 图层会自动读取，不需要改 UI。
 
+> 运行时新增（手绘 / 导入）不要改常量，调用 `airspaceStore.addAirspace()` 即可：列表、地图实体、告警时间线会一起更新（`AirspaceLayer` 按 id 差异建删实体，`alerts.ts` 依赖 `airspaceRevision` 自动重算）。
+
 ### 8.2 新增一架无人机
 
 在 `DRONES` 中追加航线、速度、任务和颜色。注意：
@@ -485,12 +494,53 @@ git log --oneline
 
 ## 11. 当前限制
 
-- 没有后端，数据是前端模拟；
+- 没有后端，数据是前端模拟，刷新即还原；
 - 告警规则是简化版，只做点面判断和高度区间；
 - 没有真实 ADS-B / Remote ID；
-- 底图暂时用 Esri，正式项目需替换为已授权底图；
-- 没有 3D 建筑模型；
-- 无人机目前是 Billboard，不是 glTF；
+- 底图为天地图（需自备 key），正式出版需审图号；
+- 建筑为 OSM 轮廓挤出，国内覆盖不完整，缺数据片区会偏空；
+- 地形仍是椭球面，没有接 DEM，因此建筑与目标都以 0 高程为基准；
+- 路径规划只考虑单一高度层与静态空域，未考虑建筑、风场、动态障碍；
 - 时间轴是固定 7 分钟演示窗口，不是真实时间流。
 
 这些限制不影响课程答辩，但写进报告里会更严谨。
+
+---
+
+## 12. 空域导入、路径规划与建筑
+
+### 12.1 GeoJSON 导入
+
+`src/data/geojsonImport.ts` 是纯函数，输入文件文本，输出可直接写入 store 的空域数组：
+
+- 支持 `FeatureCollection` / `Feature` / 裸几何；
+- 几何只取 `Polygon` 与 `MultiPolygon` 的外环（内环孔洞暂不处理）；
+- 校验：坐标必须是 WGS84/CGCS2000 经纬度（GCJ-02 会整体偏移，不做纠偏）、去重后至少 3 点、面积不小于 50 m²；
+- 属性映射：`name/名称`、`kind/type/类别`（按关键词归一成四类）、`minAlt/maxAlt` 或 `height`；
+- 返回 `{ items, issues }`，UI 汇总提示导入了几个、跳过几个及原因。
+
+### 12.2 二维 A* 路径
+
+`src/data/pathPlan.ts` 只依赖 `Airspace[]`，不引入 Cesium：
+
+1. 局部等距投影到米制平面；
+2. 按 `cell = clamp(distance/140, 50, 160)` 建栅格，只对空域包围盒内的格子做点面判断；
+3. 只有 `no-fly` 与 `temporary` 在该高度区间内算障碍，管制区与适飞区可通行；
+4. 8 邻域 A*，斜向必须两个正交邻格都可通行，避免贴角穿越；
+5. 用二叉堆维护开集，`Float32Array/Int32Array` 存 g 值与前驱；
+6. 结果做视线简化（按 20 m 采样判断），把锯齿拉直；
+7. 返回距离、简化前后点数、展开节点数、以及"直线会穿过的限制区"用于解释绕行原因。
+
+`LowAltitudeScene` 只负责画：主航线 + 光晕 + 起终点落地垂线 + A/B 标记。
+
+### 12.3 建筑
+
+`scripts/extract-buildings.mjs` 从本地 `shenzhen.mbtiles` 读取 z16 瓦片：
+
+- `node:sqlite` 读 `tiles` 表（Node 需 `--experimental-sqlite`）；
+- 瓦片是 gzip 的 PBF，先解压再交给 `@mapbox/vector-tile` 解码；
+- 取 `building` 图层的最大外环，瓦片坐标换算回经纬度；
+- 用"质心 + 点数 + 面积"指纹去掉瓦片缓冲区造成的重复；
+- 输出 `public/data/buildings.geojson`（`h` 顶高、`mh` 底高）。
+
+运行时 `loadBuildings()` 把每栋楼变成 `PolygonGeometry` 的 `GeometryInstance`，装进**单个** `Primitive` + `PerInstanceColorAppearance`，按高度插值颜色。相比几千个 Entity，单个 Primitive 的绘制调用少得多，这也是能流畅显示的前提。

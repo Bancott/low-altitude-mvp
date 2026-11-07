@@ -1,31 +1,23 @@
 import * as Cesium from 'cesium';
-import {
-  AIRSPACES,
-  DRONES,
-  type Airspace,
-  type AlertEvent,
-  type Drone,
-  airspaceCentroid,
-  positionAt
-} from '../data/scenario';
+import { getBasemap, type BasemapStyle } from '../config/basemaps';
+import { airspaceRevision, airspaces, getAirspace } from '../data/airspaceStore';
+import { ringArea, ringCentroid, ringRadius } from '../data/geometry';
+import { DRONES, type AlertEvent, type Drone, positionAt } from '../data/scenario';
+import { AirspaceDrawer, type DrawMode, type DrawState } from './AirspaceDrawer';
+import { AirspaceLayer } from './AirspaceLayer';
 
 export type Selection = { kind: 'drone' | 'airspace'; id: string } | null;
-export type BasemapStyle = 'dark' | 'light' | 'satellite';
-export type LayerKey = 'airspace' | 'routes' | 'drones' | 'trails' | 'alerts';
+export type { BasemapStyle };
+export type { DrawMode } from './AirspaceDrawer';
+export type LayerKey = 'airspace' | 'routes' | 'drones' | 'trails' | 'alerts' | 'buildings';
 export type CameraInfo = { lon: number; lat: number; height: number; heading: number };
 
 interface SceneOptions {
   onSelect?: (selection: Selection) => void;
   onCameraChange?: (info: CameraInfo) => void;
-}
-
-interface AirspaceView {
-  airspace: Airspace;
-  volume: Cesium.Entity;
-  top: Cesium.Entity;
-  bottom: Cesium.Entity;
-  verticals: Cesium.Entity[];
-  alert: boolean;
+  onContextLost?: () => void;
+  onDrawChange?: (state: DrawState) => void;
+  onDrawFinish?: (rings: [number, number][][]) => void;
 }
 
 interface DroneView {
@@ -45,6 +37,7 @@ interface DroneView {
 
 const CENTER = { lon: 113.935, lat: 22.525 };
 const DARK = '#050a12';
+const MODEL_HEADING_OFFSET = Math.PI / 2;
 
 export class LowAltitudeScene {
   private readonly container: HTMLElement;
@@ -52,7 +45,9 @@ export class LowAltitudeScene {
   private viewer?: Cesium.Viewer;
   private handler?: Cesium.ScreenSpaceEventHandler;
   private resizeObserver?: ResizeObserver;
-  private airspaces: AirspaceView[] = [];
+  private airspaceLayer?: AirspaceLayer;
+  private drawer?: AirspaceDrawer;
+  private airspaceSyncedRevision = -1;
   private drones: DroneView[] = [];
   private facilities: Cesium.Entity[] = [];
   private selection: Selection = null;
@@ -63,13 +58,19 @@ export class LowAltitudeScene {
     routes: true,
     drones: true,
     trails: true,
-    alerts: true
+    alerts: true,
+    buildings: true
   };
   private lastTime = 0;
+  private lastUpdateWall = 0;
+  private simRate = 1;
   private lastTrailUpdate = 0;
   private lastTrailUpdateTime = 0;
   private lastCameraNotify = 0;
   private lastAlertKey = '';
+  private contextLostHandler?: (event: Event) => void;
+  private followOffset = new Cesium.Cartesian3(0, -2600, 1600);
+  private fpvId: string | null = null;
   private cameraInfo: CameraInfo = { ...CENTER, height: 7200, heading: 0 };
   private handleResize = () => this.viewer?.resize();
   private handleCameraChanged = () => {
@@ -84,7 +85,20 @@ export class LowAltitudeScene {
       heading: Cesium.Math.toDegrees(this.viewer.camera.heading)
     };
     this.options.onCameraChange?.({ ...this.cameraInfo });
+
+    // 超过 1500 km 视为"地球视图"，打开大气边缘光；回到近处再关掉
+    const far = carto.height > 1500000;
+    if (this.globeFar !== far) {
+      this.globeFar = far;
+      this.viewer.scene.globe.showGroundAtmosphere = far;
+      this.viewer.scene.requestRender();
+    }
   };
+
+  private globeFar = false;
+  private routePick: ((point: [number, number]) => void) | null = null;
+  private buildingPrimitive?: Cesium.Primitive;
+  private routeEntities: Cesium.Entity[] = [];
 
   constructor(container: HTMLElement, options: SceneOptions = {}) {
     this.container = container;
@@ -108,6 +122,7 @@ export class LowAltitudeScene {
       skyBox: false,
       skyAtmosphere: false,
       shouldAnimate: false,
+      msaaSamples: 4,
       requestRenderMode: true
     });
 
@@ -115,21 +130,38 @@ export class LowAltitudeScene {
     scene.backgroundColor = Cesium.Color.fromCssColorString(DARK);
     scene.globe.baseColor = Cesium.Color.fromCssColorString('#07111f');
     scene.globe.enableLighting = false;
+    // 近处关闭大气雾化（避免压暗底图），拉到地球尺度时再打开，给地球一圈蓝色边缘光
     scene.globe.showGroundAtmosphere = false;
     scene.globe.depthTestAgainstTerrain = false;
     scene.fog.enabled = false;
-    scene.screenSpaceCameraController.minimumZoomDistance = 900;
-    scene.screenSpaceCameraController.maximumZoomDistance = 26000;
+    scene.screenSpaceCameraController.minimumZoomDistance = 2;
+    scene.screenSpaceCameraController.maximumZoomDistance = 20000000;
     scene.screenSpaceCameraController.enableLook = false;
     scene.requestRenderMode = true;
     scene.maximumRenderTimeChange = Number.POSITIVE_INFINITY;
 
     this.setBasemap('dark');
-    this.buildAirspaces();
+    this.airspaceLayer = new AirspaceLayer(this.viewer);
+    this.drawer = new AirspaceDrawer(this.viewer, {
+      onChange: (state) => this.options.onDrawChange?.(state),
+      onFinish: (rings) => this.options.onDrawFinish?.(rings)
+    });
+    this.syncAirspaces(true);
     this.buildDrones();
     this.buildRoutes();
     this.buildFacilities();
     this.bindEvents();
+
+    this.contextLostHandler = (event: Event) => {
+      event.preventDefault();
+      this.options.onContextLost?.();
+    };
+    this.viewer.scene.canvas.addEventListener(
+      'webglcontextlost',
+      this.contextLostHandler,
+      false
+    );
+
     this.resetView(false);
     this.viewer.resize();
     this.options.onCameraChange?.({ ...this.cameraInfo });
@@ -137,54 +169,26 @@ export class LowAltitudeScene {
 
   setBasemap(style: BasemapStyle): void {
     if (!this.viewer) return;
+    const config = getBasemap(style);
     this.viewer.imageryLayers.removeAll();
 
-    const darkBase =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
-    const darkLabels =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
-    const lightBase =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
-    const lightLabels =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
-    const satellite =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-
-    const layers =
-      style === 'light'
-        ? [
-            { url: lightBase, credit: 'Esri · HERE · Garmin · OpenStreetMap contributors' },
-            { url: lightLabels, credit: '' }
-          ]
-        : style === 'satellite'
-          ? [{ url: satellite, credit: 'Esri · Maxar · Earthstar Geographics' }]
-          : [
-              { url: darkBase, credit: 'Esri · HERE · Garmin · OpenStreetMap contributors' },
-              { url: darkLabels, credit: '' }
-            ];
-
-    for (const layer of layers) {
+    for (const layer of config.layers) {
       const provider = new Cesium.UrlTemplateImageryProvider({
         url: layer.url,
-        maximumLevel: 19,
+        subdomains: layer.subdomains,
+        maximumLevel: config.maxLevel,
         tilingScheme: new Cesium.WebMercatorTilingScheme(),
         credit: layer.credit ? new Cesium.Credit(layer.credit) : undefined
       });
       const imageryLayer = this.viewer.imageryLayers.addImageryProvider(provider);
-      if (style === 'dark') {
-        imageryLayer.brightness = 0.78;
-        imageryLayer.contrast = 1.08;
-        imageryLayer.saturation = 0.72;
-        imageryLayer.gamma = 0.92;
-      }
+      if (layer.brightness !== undefined) imageryLayer.brightness = layer.brightness;
+      if (layer.contrast !== undefined) imageryLayer.contrast = layer.contrast;
+      if (layer.saturation !== undefined) imageryLayer.saturation = layer.saturation;
+      if (layer.gamma !== undefined) imageryLayer.gamma = layer.gamma;
     }
 
-    this.viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString(
-      style === 'light' ? '#c9d5e4' : '#07111f'
-    );
-    this.viewer.scene.backgroundColor = Cesium.Color.fromCssColorString(
-      style === 'light' ? '#eef2f7' : DARK
-    );
+    this.viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString(config.globeColor);
+    this.viewer.scene.backgroundColor = Cesium.Color.fromCssColorString(config.sceneColor);
     this.viewer.scene.requestRender();
   }
 
@@ -193,12 +197,7 @@ export class LowAltitudeScene {
     if (!this.viewer) return;
 
     if (key === 'airspace') {
-      for (const view of this.airspaces) {
-        view.volume.show = visible;
-        view.top.show = visible;
-        view.bottom.show = visible;
-        view.verticals.forEach((item) => (item.show = visible));
-      }
+      this.airspaceLayer?.setVisible(visible);
     }
 
     if (key === 'routes') {
@@ -220,11 +219,71 @@ export class LowAltitudeScene {
       for (const view of this.drones) view.halo.show = visible && view.alert;
     }
 
+    if (key === 'buildings' && this.buildingPrimitive) {
+      this.buildingPrimitive.show = visible;
+    }
+
     this.viewer.scene.requestRender();
+  }
+
+  /** 外部（如手绘/导入）改完空域后立即刷新，不依赖下一帧的 update */
+  refreshAirspaces(): void {
+    this.syncAirspaces(true);
+    this.viewer?.scene.requestRender();
+  }
+
+  startAirspaceDraw(mode: DrawMode = 'polygon'): void {
+    this.drawer?.start(mode);
+  }
+
+  setAirspaceDrawMode(mode: DrawMode): void {
+    this.drawer?.setMode(mode);
+  }
+
+  setAirspaceDrawPan(on: boolean): void {
+    this.drawer?.setPanMode(on);
+  }
+
+  cancelAirspaceDraw(): void {
+    this.drawer?.stop();
+  }
+
+  undoAirspacePoint(): void {
+    this.drawer?.undo();
+  }
+
+  closeAirspaceRing(): void {
+    this.drawer?.closeRing();
+  }
+
+  finishAirspaceDraw(): void {
+    this.drawer?.finishAll();
+  }
+
+  /** 空域数据变化时才重建实体，每帧只比一次版本号 */
+  private syncAirspaces(force = false): void {    if (!this.airspaceLayer) return;
+    const revision = airspaceRevision.value;
+    if (!force && revision === this.airspaceSyncedRevision) return;
+    this.airspaceSyncedRevision = revision;
+    this.airspaceLayer.sync(airspaces.value);
+    this.airspaceLayer.setSelection(
+      this.selection?.kind === 'airspace' ? this.selection.id : null
+    );
   }
 
   update(time: number, activeAlerts: AlertEvent[]): void {
     if (!this.viewer) return;
+
+    this.syncAirspaces();
+
+    // 估算播放倍速（模拟秒 / 真实秒），用于飞行定位时按目标速度做前置补偿
+    const wall = performance.now();
+    const dtWall = (wall - this.lastUpdateWall) / 1000;
+    if (this.lastUpdateWall > 0 && dtWall > 0.03 && dtWall < 0.5) {
+      const rate = (time - this.lastTime) / dtWall;
+      if (rate >= 0 && rate < 12) this.simRate = rate;
+    }
+    this.lastUpdateWall = wall;
     this.lastTime = time;
 
     const nextDroneIds = new Set(activeAlerts.map((item) => item.droneId));
@@ -249,10 +308,7 @@ export class LowAltitudeScene {
         view.alert = view.alertLevel !== null;
         this.applyDroneStyle(view);
       }
-      for (const view of this.airspaces) {
-        view.alert = nextAirspaceIds.has(view.airspace.id);
-        this.applyAirspaceStyle(view);
-      }
+      this.airspaceLayer?.setAlerting(nextAirspaceIds);
     }
 
     const now = performance.now();
@@ -272,6 +328,11 @@ export class LowAltitudeScene {
       this.lastTrailUpdateTime = time;
     }
 
+    if (this.fpvId) {
+      const view = this.drones.find((item) => item.drone.id === this.fpvId);
+      if (view) this.applyFirstPersonCamera(view);
+    }
+
     this.viewer.scene.requestRender();
   }
 
@@ -283,9 +344,7 @@ export class LowAltitudeScene {
       this.applyDroneStyle(view);
     }
 
-    for (const view of this.airspaces) {
-      this.applyAirspaceStyle(view);
-    }
+    this.airspaceLayer?.setSelection(selection?.kind === 'airspace' ? selection.id : null);
 
     this.viewer?.scene.requestRender();
     if (emit) this.options.onSelect?.(selection);
@@ -298,33 +357,32 @@ export class LowAltitudeScene {
     if (selection.kind === 'drone') {
       const view = this.drones.find((item) => item.drone.id === selection.id);
       if (!view) return;
-      const pos = positionAt(view.drone, this.lastTime);
-      this.viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt + 1650),
-        orientation: {
-          heading: 0,
-          pitch: Cesium.Math.toRadians(-56),
-          roll: 0
-        },
+      // 预判镜头到位那一刻目标所在的位置，避免飞到一半目标已经跑开
+      const pos = positionAt(view.drone, this.lastTime + 1.15 * this.simRate);
+      const center = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt);
+      // 以目标为中心取景：相机挂在目标北侧斜上方，朝目标俯视，目标始终落在画面中心
+      this.viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 40), {
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-30), 520),
         duration: 1.15
       });
       return;
     }
 
-    const view = this.airspaces.find((item) => item.airspace.id === selection.id);
-    if (!view) return;
-    const center = airspaceCentroid(view.airspace);
-    this.viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(
-        center.lon,
-        center.lat,
-        Math.max(3300, view.airspace.maxAlt * 11)
-      ),
-      orientation: {
-        heading: 0,
-        pitch: Cesium.Math.toRadians(-54),
-        roll: 0
-      },
+    const airspace = getAirspace(selection.id);
+    if (!airspace || airspace.polygons.length === 0) return;
+    // 多块空域按面积最大的那一块取景
+    const ring = [...airspace.polygons].sort((a, b) => ringArea(b) - ringArea(a))[0];
+    const center = ringCentroid(ring);
+    const midAlt = (airspace.minAlt + airspace.maxAlt) / 2;
+    // 半径取轮廓外接圆，太小的空域兜底 320m，太大的封顶 6km
+    const extent = ringRadius(ring);
+    const radius = Cesium.Math.clamp(Math.max(extent, airspace.maxAlt * 2), 320, 6000);
+    const sphere = new Cesium.BoundingSphere(
+      Cesium.Cartesian3.fromDegrees(center.lon, center.lat, midAlt),
+      radius
+    );
+    this.viewer.camera.flyToBoundingSphere(sphere, {
+      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-38), radius * 2.6),
       duration: 1.15
     });
   }
@@ -337,13 +395,90 @@ export class LowAltitudeScene {
     }
     const view = this.drones.find((item) => item.drone.id === selection.id);
     if (!view) return false;
-    view.entity.viewFrom = new Cesium.Cartesian3(0, -2600, 1600);
+    this.followOffset = new Cesium.Cartesian3(0, -2600, 1600);
+    view.entity.viewFrom = Cesium.Cartesian3.clone(this.followOffset);
     this.viewer.trackedEntity = view.entity;
     return true;
   }
 
   stopFollow(): void {
     if (this.viewer) this.viewer.trackedEntity = undefined;
+  }
+
+  /**
+   * 第一视角：相机吊在机尾后上方，沿航向朝前看，机体保持在画面下方。
+   * 后续可在 applyFirstPersonCamera 里叠加云台角度、变焦与外挂传感器视场。
+   */
+  firstPerson(selection: Selection): boolean {
+    if (!this.viewer || !selection || selection.kind !== 'drone') return false;
+    const view = this.drones.find((item) => item.drone.id === selection.id);
+    if (!view) return false;
+    this.viewer.trackedEntity = undefined;
+    if (this.fpvId) this.exitFirstPerson();
+    this.fpvId = selection.id;
+    if (view.entity.model) {
+      view.entity.model.silhouetteColor = new Cesium.ConstantProperty(
+        Cesium.Color.fromCssColorString('#08131f').withAlpha(0.5)
+      );
+      view.entity.model.silhouetteSize = new Cesium.ConstantProperty(1.4);
+    }
+    this.viewer.scene.screenSpaceCameraController.enableInputs = false;
+    this.applyFirstPersonCamera(view);
+    this.viewer.scene.requestRender();
+    return true;
+  }
+
+  exitFirstPerson(): void {
+    if (!this.fpvId) return;
+    const view = this.drones.find((item) => item.drone.id === this.fpvId);
+    if (view?.entity.model) {
+      view.entity.model.show = new Cesium.ConstantProperty(true);
+      view.entity.model.silhouetteColor = new Cesium.ConstantProperty(Cesium.Color.TRANSPARENT);
+      view.entity.model.silhouetteSize = new Cesium.ConstantProperty(0.01);
+    }
+    this.fpvId = null;
+    if (this.viewer) {
+      this.viewer.scene.screenSpaceCameraController.enableInputs = true;
+      this.viewer.scene.requestRender();
+    }
+  }
+
+  isFirstPerson(): string | null {
+    return this.fpvId;
+  }
+
+  private applyFirstPersonCamera(view: DroneView): void {
+    if (!this.viewer) return;
+    const frame = Cesium.Transforms.eastNorthUpToFixedFrame(view.position);
+    const heading = Cesium.Math.toRadians(view.heading);
+    const forwardX = Math.sin(heading);
+    const forwardY = Math.cos(heading);
+
+    // 机尾后上方 9 m / 2.3 m，俯角 8.5°，机体落在画面下方三分之一处
+    const eyeLocal = new Cesium.Cartesian3(forwardX * -9, forwardY * -9, 2.3);
+    const eye = Cesium.Matrix4.multiplyByPoint(frame, eyeLocal, new Cesium.Cartesian3());
+
+    const directionLocal = new Cesium.Cartesian3(
+      forwardX,
+      forwardY,
+      Math.tan(Cesium.Math.toRadians(-8.5))
+    );
+    Cesium.Cartesian3.normalize(directionLocal, directionLocal);
+    const direction = Cesium.Matrix4.multiplyByPointAsVector(
+      frame,
+      directionLocal,
+      new Cesium.Cartesian3()
+    );
+    Cesium.Cartesian3.normalize(direction, direction);
+
+    const up = Cesium.Matrix4.multiplyByPointAsVector(
+      frame,
+      Cesium.Cartesian3.UNIT_Z,
+      new Cesium.Cartesian3()
+    );
+    Cesium.Cartesian3.normalize(up, up);
+
+    this.viewer.camera.setView({ destination: eye, orientation: { direction, up } });
   }
 
   private focus2D(): void {
@@ -356,6 +491,7 @@ export class LowAltitudeScene {
 
   setMode(mode: '2d' | '3d'): void {
     if (!this.viewer) return;
+    this.exitFirstPerson();
     if (mode === '2d') {
       this.focus2D();
       return;
@@ -364,8 +500,241 @@ export class LowAltitudeScene {
     this.resetView();
   }
 
+  /** 加载建筑轮廓并按高度挤出（单个 Primitive 批量绘制，避免上千个 Entity） */
+  async loadBuildings(url = '/data/buildings.geojson'): Promise<number> {
+    if (!this.viewer) return 0;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return 0;
+      const data = (await response.json()) as {
+        features: Array<{ properties: { h?: number; mh?: number }; geometry: { coordinates: number[][][] } }>;
+      };
+      if (!Array.isArray(data.features) || !data.features.length) return 0;
+
+      const instances: Cesium.GeometryInstance[] = [];
+      for (const feature of data.features) {
+        const ring = feature.geometry?.coordinates?.[0];
+        if (!ring || ring.length < 4) continue;
+        const flat: number[] = [];
+        for (const point of ring) {
+          flat.push(point[0], point[1]);
+        }
+        const h = Math.max(3, Number(feature.properties?.h ?? 8));
+        const mh = Math.max(0, Math.min(h - 1, Number(feature.properties?.mh ?? 0)));
+        instances.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.PolygonGeometry({
+              polygonHierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(flat)),
+              height: mh,
+              extrudedHeight: h,
+              vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+            }),
+            attributes: {
+              color: Cesium.ColorGeometryInstanceAttribute.fromColor(buildingColor(h))
+            }
+          })
+        );
+      }
+      if (!instances.length) return 0;
+
+      this.buildingPrimitive = this.viewer.scene.primitives.add(
+        new Cesium.Primitive({
+          geometryInstances: instances,
+          appearance: new Cesium.PerInstanceColorAppearance({ translucent: false, closed: true }),
+          asynchronous: true
+        })
+      ) as Cesium.Primitive;
+      this.buildingPrimitive.show = this.layers.buildings;
+      this.viewer.scene.requestRender();
+      return instances.length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 进入路径选点：下一次左键单击返回地表经纬度 */
+  pickPoint(): Promise<[number, number] | null> {
+    if (!this.viewer) return Promise.resolve(null);
+    this.routePick = null;
+    this.viewer.scene.canvas.style.cursor = 'crosshair';
+    return new Promise((resolve) => {
+      this.routePick = (point) => resolve(point);
+    });
+  }
+
+  cancelPick(): void {
+    this.routePick = null;
+    if (this.viewer) this.viewer.scene.canvas.style.cursor = 'default';
+  }
+
+  /** 起终点标记（A / B） */
+  setRouteMarkers(from: [number, number] | null, to: [number, number] | null): void {
+    if (!this.viewer) return;
+    for (const entity of this.routeEntities.filter((e) => e.id === 'route:from' || e.id === 'route:to')) {
+      this.viewer.entities.remove(entity);
+    }
+    this.routeEntities = this.routeEntities.filter((e) => e.id !== 'route:from' && e.id !== 'route:to');
+
+    const add = (id: string, point: [number, number], color: string, label: string) => {
+      const entity = this.viewer!.entities.add({
+        id,
+        position: Cesium.Cartesian3.fromDegrees(point[0], point[1], 6),
+        point: {
+          pixelSize: 13,
+          color: Cesium.Color.fromCssColorString(color),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2.5,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        },
+        label: {
+          text: label,
+          font: '600 12px Inter, system-ui, sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          showBackground: true,
+          backgroundColor: Cesium.Color.fromCssColorString(color).withAlpha(0.92),
+          backgroundPadding: new Cesium.Cartesian2(7, 4),
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+      this.routeEntities.push(entity);
+    };
+
+    if (from) add('route:from', from, '#35C28B', '起点');
+    if (to) add('route:to', to, '#F0553F', '终点');
+    this.viewer.scene.requestRender();
+  }
+
+  /** 绘制规划结果：主航线 + 光晕 + 落地垂线 */
+  showRoute(path: [number, number][], alt: number): void {
+    if (!this.viewer || path.length < 2) return;
+    this.clearRouteLine();
+
+    const positions = path.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, alt));
+
+    const glow = this.viewer.entities.add({
+      id: 'route:glow',
+      polyline: {
+        positions,
+        width: 9,
+        material: Cesium.Color.fromCssColorString('#35E0FF').withAlpha(0.18),
+        clampToGround: false
+      }
+    });
+
+    const line = this.viewer.entities.add({
+      id: 'route:line',
+      polyline: {
+        positions,
+        width: 3.2,
+        material: new Cesium.PolylineOutlineMaterialProperty({
+          color: Cesium.Color.fromCssColorString('#35E0FF'),
+          outlineColor: Cesium.Color.fromCssColorString('#05202b'),
+          outlineWidth: 1.4
+        }),
+        clampToGround: false
+      }
+    });
+
+    const drops: Cesium.Entity[] = [];
+    for (const [index, [lon, lat]] of path.entries()) {
+      if (index !== 0 && index !== path.length - 1) continue;
+      drops.push(
+        this.viewer.entities.add({
+          id: `route:drop:${index}`,
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]),
+            width: 1.4,
+            material: new Cesium.PolylineDashMaterialProperty({
+              color: Cesium.Color.fromCssColorString('#35E0FF').withAlpha(0.55),
+              dashLength: 10
+            }),
+            clampToGround: false
+          }
+        })
+      );
+    }
+
+    this.routeEntities.push(glow, line, ...drops);
+    this.viewer.scene.requestRender();
+  }
+
+  clearRouteLine(): void {
+    if (!this.viewer) return;
+    for (const entity of this.routeEntities) {
+      if (entity.id === 'route:from' || entity.id === 'route:to') continue;
+      this.viewer.entities.remove(entity);
+    }
+    this.routeEntities = this.routeEntities.filter((e) => e.id === 'route:from' || e.id === 'route:to');
+    this.viewer.scene.requestRender();
+  }
+
+  clearRoute(): void {
+    if (!this.viewer) return;
+    for (const entity of this.routeEntities) this.viewer.entities.remove(entity);
+    this.routeEntities = [];
+    this.cancelPick();
+    this.viewer.scene.requestRender();
+  }
+
+  zoomBy(ratio: number): void {
+    if (!this.viewer) return;
+
+    if (this.fpvId) {
+      const frustum = this.viewer.camera.frustum;
+      if (frustum instanceof Cesium.PerspectiveFrustum) {
+        const current = frustum.fov ?? Cesium.Math.toRadians(60);
+        frustum.fov = Cesium.Math.clamp(
+          current * ratio,
+          Cesium.Math.toRadians(18),
+          Cesium.Math.toRadians(70)
+        );
+      }
+      this.viewer.scene.requestRender();
+      return;
+    }
+
+    if (this.viewer.trackedEntity) {
+      const length = Cesium.Cartesian3.magnitude(this.followOffset);
+      const target = Cesium.Math.clamp(length * ratio, 8, 6000);
+      Cesium.Cartesian3.multiplyByScalar(this.followOffset, target / length, this.followOffset);
+      const tracked = this.viewer.trackedEntity;
+      tracked.viewFrom = Cesium.Cartesian3.clone(this.followOffset);
+      this.viewer.trackedEntity = undefined;
+      this.viewer.trackedEntity = tracked;
+      this.viewer.scene.requestRender();
+      return;
+    }
+
+    const camera = this.viewer.camera;
+    const height = camera.positionCartographic.height;
+    const target = Cesium.Math.clamp(height * ratio, 2, 20000000);
+    camera.zoomIn(height - target);
+    this.viewer.scene.requestRender();
+  }
+
+  project(lon: number, lat: number, alt: number): { x: number; y: number } | null {
+    if (!this.viewer) return null;
+    const transforms = Cesium.SceneTransforms as unknown as {
+      worldToWindowCoordinates?: (
+        scene: Cesium.Scene,
+        position: Cesium.Cartesian3
+      ) => Cesium.Cartesian2 | undefined;
+      wgs84ToWindowCoordinates?: (
+        scene: Cesium.Scene,
+        position: Cesium.Cartesian3
+      ) => Cesium.Cartesian2 | undefined;
+    };
+    const convert = transforms.worldToWindowCoordinates ?? transforms.wgs84ToWindowCoordinates;
+    if (!convert) return null;
+    const point = convert(this.viewer.scene, Cesium.Cartesian3.fromDegrees(lon, lat, alt));
+    if (!point) return null;
+    return { x: point.x, y: point.y };
+  }
+
   resetView(animate = true): void {
     if (!this.viewer) return;
+    this.exitFirstPerson();
     this.viewer.trackedEntity = undefined;
 
     if (this.viewer.scene.mode === Cesium.SceneMode.SCENE2D) {
@@ -403,8 +772,17 @@ export class LowAltitudeScene {
     this.resizeObserver?.disconnect();
     window.removeEventListener('resize', this.handleResize);
     this.handler?.destroy();
-    this.viewer?.camera.changed.removeEventListener(this.handleCameraChanged);
-    if (this.viewer && !this.viewer.isDestroyed()) this.viewer.destroy();
+    this.airspaceLayer?.destroy();
+    if (this.viewer && !this.viewer.isDestroyed()) {
+      if (this.contextLostHandler) {
+        this.viewer.scene.canvas.removeEventListener(
+          'webglcontextlost',
+          this.contextLostHandler
+        );
+      }
+      this.viewer.camera.changed.removeEventListener(this.handleCameraChanged);
+      this.viewer.destroy();
+    }
     this.viewer = undefined;
   }
 
@@ -414,6 +792,24 @@ export class LowAltitudeScene {
 
     this.handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
       if (!this.viewer) return;
+      // 路径选点优先：取地表经纬度后交给回调，不做选中
+      if (this.routePick) {
+        const ray = this.viewer.camera.getPickRay(movement.position);
+        const cart = ray ? this.viewer.scene.globe.pick(ray, this.viewer.scene) : undefined;
+        if (cart) {
+          const carto = Cesium.Cartographic.fromCartesian(cart);
+          const callback = this.routePick;
+          this.routePick = null;
+          this.viewer.scene.canvas.style.cursor = 'default';
+          callback([
+            Cesium.Math.toDegrees(carto.longitude),
+            Cesium.Math.toDegrees(carto.latitude)
+          ]);
+        }
+        return;
+      }
+      // 手绘模式下单击用于落点，不做拾取选中
+      if (this.drawer?.isActive) return;
       const picked = this.viewer.scene.pick(movement.position);
       const rawId = this.extractId(picked);
       if (rawId) {
@@ -436,6 +832,7 @@ export class LowAltitudeScene {
 
     this.handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
       if (!this.viewer) return;
+      if (this.drawer?.isActive) return;
       const picked = this.viewer.scene.pick(movement.endPosition);
       this.viewer.scene.canvas.style.cursor = this.extractId(picked) ? 'pointer' : 'default';
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
@@ -455,77 +852,6 @@ export class LowAltitudeScene {
     if (typeof candidate === 'string') return candidate;
     const entity = candidate as Cesium.Entity;
     return typeof entity.id === 'string' ? entity.id : null;
-  }
-
-  private buildAirspaces(): void {
-    if (!this.viewer) return;
-
-    for (const airspace of AIRSPACES) {
-      const color = Cesium.Color.fromCssColorString(airspace.color);
-      const ring = [...airspace.polygon, airspace.polygon[0]];
-      const topPositions = Cesium.Cartesian3.fromDegreesArrayHeights(
-        ring.flatMap(([lon, lat]) => [lon, lat, airspace.maxAlt + 1])
-      );
-      const bottomPositions = Cesium.Cartesian3.fromDegreesArrayHeights(
-        ring.flatMap(([lon, lat]) => [lon, lat, airspace.minAlt + 1])
-      );
-
-      const volume = this.viewer.entities.add({
-        id: `airspace:${airspace.id}`,
-        name: airspace.name,
-        polygon: {
-          hierarchy: new Cesium.PolygonHierarchy(
-            Cesium.Cartesian3.fromDegreesArray(airspace.polygon.flat())
-          ),
-          height: airspace.minAlt,
-          extrudedHeight: airspace.maxAlt,
-          material: color.withAlpha(0.05),
-          outline: false
-        }
-      });
-
-      const top = this.viewer.entities.add({
-        id: `airspace:${airspace.id}:top`,
-        polyline: {
-          positions: topPositions,
-          width: 1.2,
-          material: color.withAlpha(0.78),
-          arcType: Cesium.ArcType.NONE
-        }
-      });
-
-      const bottom = this.viewer.entities.add({
-        id: `airspace:${airspace.id}:bottom`,
-        polyline: {
-          positions: bottomPositions,
-          width: 0.8,
-          material: color.withAlpha(0.16),
-          arcType: Cesium.ArcType.NONE
-        }
-      });
-
-      const verticals = airspace.polygon.map(([lon, lat], index) =>
-        this.viewer!.entities.add({
-          id: `airspace:${airspace.id}:edge:${index}`,
-          polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArrayHeights([
-              lon,
-              lat,
-              airspace.minAlt,
-              lon,
-              lat,
-              airspace.maxAlt
-            ]),
-            width: 0.8,
-            material: color.withAlpha(0.12),
-            arcType: Cesium.ArcType.NONE,
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 18000)
-          }
-        })
-      );
-
-      this.airspaces.push({ airspace, volume, top, bottom, verticals, alert: false });
-    }
   }
 
   private buildRoutes(): void {
@@ -576,19 +902,24 @@ export class LowAltitudeScene {
       view.entity = this.viewer.entities.add({
         id: `drone:${drone.id}`,
         position: new Cesium.CallbackPositionProperty(() => view.position, false),
-        billboard: {
-          image: droneIcon(drone.color, false),
-          width: 34,
-          height: 34,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          rotation: new Cesium.CallbackProperty(
-            () => -Cesium.Math.toRadians(view.heading),
-            false
-          ),
-          alignedAxis: Cesium.Cartesian3.ZERO,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scale: new Cesium.CallbackProperty(() => (view.selected ? 1.16 : 1), false)
+        orientation: new Cesium.CallbackProperty(
+          () =>
+            Cesium.Transforms.headingPitchRollQuaternion(
+              view.position,
+              new Cesium.HeadingPitchRoll(
+                Cesium.Math.toRadians(view.heading) + MODEL_HEADING_OFFSET,
+                0,
+                0
+              )
+            ),
+          false
+        ),
+        model: {
+          uri: '/models/uav.glb',
+          scale: new Cesium.CallbackProperty(() => (view.selected ? 0.12 : 0.1), false),
+          minimumPixelSize: 44,
+          maximumScale: 400,
+          heightReference: Cesium.HeightReference.NONE
         },
         label: {
           text: drone.callsign,
@@ -703,14 +1034,6 @@ export class LowAltitudeScene {
         : Cesium.Color.fromCssColorString('#334155');
     const alertColor = view.alertLevel === 'critical' ? red : amber;
 
-    if (view.entity.billboard) {
-      view.entity.billboard.image = new Cesium.ConstantProperty(
-        droneIcon(view.drone.color, view.alert, view.alertLevel)
-      );
-      view.entity.billboard.width = new Cesium.ConstantProperty(view.alert ? 38 : 32);
-      view.entity.billboard.height = new Cesium.ConstantProperty(view.alert ? 38 : 32);
-    }
-
     if (view.entity.label) {
       view.entity.label.show = new Cesium.ConstantProperty(view.selected);
       view.entity.label.text = new Cesium.ConstantProperty(
@@ -737,51 +1060,6 @@ export class LowAltitudeScene {
     }
   }
 
-  private applyAirspaceStyle(view: AirspaceView): void {
-    const color = Cesium.Color.fromCssColorString(view.airspace.color);
-    const red = Cesium.Color.fromCssColorString('#E5484D');
-    const selected =
-      this.selection?.kind === 'airspace' && this.selection.id === view.airspace.id;
-    const accent = view.alert ? red : color;
-    const fillAlpha =
-      view.airspace.kind === 'no-fly'
-        ? selected
-          ? 0.07
-          : view.alert
-            ? 0.05
-            : 0.03
-        : selected
-          ? 0.07
-          : 0.025;
-
-    if (view.volume.polygon) {
-      view.volume.polygon.material = new Cesium.ColorMaterialProperty(
-        (view.alert ? red : color).withAlpha(fillAlpha)
-      );
-    }
-
-    if (view.top.polyline) {
-      view.top.polyline.material = new Cesium.ColorMaterialProperty(
-        accent.withAlpha(selected ? 0.96 : 0.7)
-      );
-      view.top.polyline.width = new Cesium.ConstantProperty(selected || view.alert ? 1.5 : 1);
-    }
-
-    if (view.bottom.polyline) {
-      view.bottom.polyline.material = new Cesium.ColorMaterialProperty(
-        accent.withAlpha(selected ? 0.28 : 0.12)
-      );
-    }
-
-    for (const vertical of view.verticals) {
-      if (vertical.polyline) {
-        vertical.polyline.material = new Cesium.ColorMaterialProperty(
-          accent.withAlpha(selected ? 0.18 : 0.08)
-        );
-      }
-    }
-  }
-
   private updateTrail(view: DroneView, time: number): void {
     const points: Cesium.Cartesian3[] = [];
     const count = view.alert ? 26 : 20;
@@ -795,28 +1073,6 @@ export class LowAltitudeScene {
 
 function svgData(svg: string): string {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
-}
-
-function droneIcon(
-  color: string,
-  alert: boolean,
-  level: 'critical' | 'warning' | null = null
-): string {
-  const main = alert ? (level === 'warning' ? '#E49A2F' : '#E5484D') : color;
-  return svgData(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-      <defs>
-        <filter id="g" x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="2.6" result="b"/>
-          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <circle cx="32" cy="32" r="20" fill="${main}" fill-opacity=".06" stroke="${main}" stroke-opacity=".3" stroke-width="1.2"/>
-      <path d="M32 9 L46 47 L32 39.5 L18 47 Z" fill="${main}" filter="url(#g)"/>
-      <path d="M32 17 L39 39 L32 35 L25 39 Z" fill="#ffffff" fill-opacity=".82"/>
-      <circle cx="32" cy="32" r="2.4" fill="#ffffff"/>
-    </svg>
-  `);
 }
 
 function alertHaloIcon(color = '#E5484D'): string {
@@ -849,6 +1105,14 @@ function commandIcon(): string {
       <circle cx="32" cy="32" r="2.4" fill="#ffffff"/>
     </svg>
   `);
+}
+
+function buildingColor(height: number): Cesium.Color {
+  const t = Math.min(1, Math.max(0, (height - 6) / 90));
+  const low = Cesium.Color.fromCssColorString('#223043');
+  const high = Cesium.Color.fromCssColorString('#53708f');
+  const mixed = Cesium.Color.lerp(low, high, t, new Cesium.Color());
+  return mixed.withAlpha(0.97);
 }
 
 function helipadIcon(): string {
