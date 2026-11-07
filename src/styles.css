@@ -974,13 +974,21 @@ html[data-theme='light'] .air-row.active {
 .rail {
   position: absolute;
   top: 84px;
-  right: 12px;
+  right: 8px;
+  bottom: 320px; /* 预留右下角缩放控件簇（readout + 底图胶囊 + cluster）的高度 */
   z-index: 26;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  padding: 0 4px 0 6px; /* 右侧吸收 hover 放大溢出，左侧吸收文字 translateX(5px)，避免滚动容器裁切 */
+  overflow-y: auto;
+  scrollbar-width: none;
   transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
 }
 
 .rail-item {
@@ -2549,7 +2557,26 @@ html[data-theme='light'] .bm-pill.active {
   }
 }
 
+@media (max-height: 880px) {
+  .rail {
+    gap: 6px;
+  }
+
+  .rail-item {
+    height: 40px;
+  }
+
+  .bead {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 @media (max-height: 760px) {
+  .rail {
+    bottom: 300px;
+  }
+
   .rail-item {
     height: 36px;
   }
