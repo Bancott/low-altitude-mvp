@@ -86,7 +86,7 @@ export class AirspaceDrawer {
             : (undefined as unknown as Cesium.PolygonHierarchy);
         }, false),
         height: 2,
-        material: color.withAlpha(0.18),
+        material: color.withAlpha(0.3),
         outline: false
       }
     });
@@ -234,7 +234,7 @@ export class AirspaceDrawer {
         polygon: {
           hierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(ring.flat())),
           height: 2,
-          material: color.withAlpha(0.18),
+          material: color.withAlpha(0.3),
           outline: false
         }
       })
