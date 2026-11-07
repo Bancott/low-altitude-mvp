@@ -39,6 +39,11 @@ const CENTER = { lon: 113.935, lat: 22.525 };
 const DARK = '#050a12';
 const MODEL_HEADING_OFFSET = Math.PI / 2;
 
+// 缩到这个高度开始把俯角往 -90° 拉平；到 GLOBE_LEVEL_FULL 完全拉平。
+// 不拉平的话，斜俯角在极远距离上会把球体压到画面下半部分。
+const GLOBE_LEVEL_START = 1_500_000;
+const GLOBE_LEVEL_FULL = 6_000_000;
+
 export class LowAltitudeScene {
   private readonly container: HTMLElement;
   private readonly options: SceneOptions;
@@ -93,9 +98,78 @@ export class LowAltitudeScene {
       this.viewer.scene.globe.showGroundAtmosphere = far;
       this.viewer.scene.requestRender();
     }
+
+    this.scheduleGlobeLevel(carto.height);
   };
 
   private globeFar = false;
+  private levelTimer: number | null = null;
+  private leveling = false;
+
+  /**
+   * 极远距离下把俯角逐步拉平到 -90°，让球体居中。
+   * 用防抖等手势停下来再飞，避免和滚轮缩放抢相机。
+   */
+  private scheduleGlobeLevel(height: number): void {
+    const viewer = this.viewer;
+    if (!viewer || this.leveling || this.fpvId || viewer.trackedEntity) return;
+    if (height < GLOBE_LEVEL_START) return;
+    if (Cesium.Math.toDegrees(viewer.camera.pitch) <= -84) return;
+
+    if (this.levelTimer !== null) window.clearTimeout(this.levelTimer);
+    this.levelTimer = window.setTimeout(() => {
+      this.levelTimer = null;
+      this.levelGlobe();
+    }, 200);
+  }
+
+  private levelGlobe(): void {
+    const viewer = this.viewer;
+    if (!viewer || this.leveling) return;
+
+    const camera = viewer.camera;
+    const height = camera.positionCartographic.height;
+    if (height < GLOBE_LEVEL_START) return;
+
+    const pitchDeg = Cesium.Math.toDegrees(camera.pitch);
+    const t = Cesium.Math.clamp(
+      (height - GLOBE_LEVEL_START) / (GLOBE_LEVEL_FULL - GLOBE_LEVEL_START),
+      0,
+      1
+    );
+    const nextPitchDeg = Cesium.Math.lerp(pitchDeg, -90, t);
+    if (pitchDeg - nextPitchDeg < 0.4) return; // 已经够平，别反复起飞
+
+    const anchor = this.screenCenterCarto() ?? Cesium.Cartographic.fromCartesian(camera.position);
+
+    this.leveling = true;
+    camera.flyTo({
+      destination: Cesium.Cartesian3.fromRadians(anchor.longitude, anchor.latitude, height),
+      orientation: { heading: camera.heading, pitch: Cesium.Math.toRadians(nextPitchDeg), roll: 0 },
+      duration: 0.6,
+      complete: () => {
+        this.leveling = false;
+        viewer.scene.requestRender();
+      },
+      cancel: () => {
+        this.leveling = false;
+      }
+    });
+  }
+
+  /** 屏幕中心落在地球上的经纬度，用于拉平俯角时保持视野中心不跑偏。 */
+  private screenCenterCarto(): Cesium.Cartographic | null {
+    const viewer = this.viewer;
+    if (!viewer) return null;
+    const scene = viewer.scene;
+    const center = new Cesium.Cartesian2(
+      scene.canvas.clientWidth / 2,
+      scene.canvas.clientHeight / 2
+    );
+    const ray = viewer.camera.getPickRay(center);
+    const point = ray ? scene.globe.pick(ray, scene) : undefined;
+    return point ? Cesium.Cartographic.fromCartesian(point) : null;
+  }
   private routePick: ((point: [number, number]) => void) | null = null;
   private buildingPrimitive?: Cesium.Primitive;
   private routeEntities: Cesium.Entity[] = [];
@@ -709,6 +783,31 @@ export class LowAltitudeScene {
     const camera = this.viewer.camera;
     const height = camera.positionCartographic.height;
     const target = Cesium.Math.clamp(height * ratio, 2, 20000000);
+
+    // 地球视图下同时把俯角拉平，否则球体会停在画面下方
+    if (target > GLOBE_LEVEL_START) {
+      const t = Cesium.Math.clamp(
+        (target - GLOBE_LEVEL_START) / (GLOBE_LEVEL_FULL - GLOBE_LEVEL_START),
+        0,
+        1
+      );
+      const pitch = Cesium.Math.toRadians(
+        Cesium.Math.lerp(Cesium.Math.toDegrees(camera.pitch), -90, t)
+      );
+      const anchor =
+        this.screenCenterCarto() ?? Cesium.Cartographic.fromCartesian(camera.position);
+      camera.setView({
+        destination: Cesium.Cartesian3.fromRadians(anchor.longitude, anchor.latitude, target),
+        orientation: { heading: camera.heading, pitch, roll: 0 }
+      });
+      if (this.levelTimer !== null) {
+        window.clearTimeout(this.levelTimer);
+        this.levelTimer = null;
+      }
+      this.viewer.scene.requestRender();
+      return;
+    }
+
     camera.zoomIn(height - target);
     this.viewer.scene.requestRender();
   }
@@ -771,6 +870,10 @@ export class LowAltitudeScene {
   destroy(): void {
     this.resizeObserver?.disconnect();
     window.removeEventListener('resize', this.handleResize);
+    if (this.levelTimer !== null) {
+      window.clearTimeout(this.levelTimer);
+      this.levelTimer = null;
+    }
     this.handler?.destroy();
     this.airspaceLayer?.destroy();
     if (this.viewer && !this.viewer.isDestroyed()) {

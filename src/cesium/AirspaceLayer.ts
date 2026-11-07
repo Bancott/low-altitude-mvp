@@ -3,7 +3,6 @@ import type { Airspace } from '../data/scenario';
 
 interface RingParts {
   volume: Cesium.Entity;
-  cap: Cesium.Entity;
   top: Cesium.Entity;
   bottom: Cesium.Entity;
   verticals: Cesium.Entity[];
@@ -59,7 +58,6 @@ export class AirspaceLayer {
     for (const view of this.views.values()) {
       for (const part of view.parts) {
         part.volume.show = visible;
-        part.cap.show = visible;
         part.top.show = visible;
         part.bottom.show = visible;
         for (const vertical of part.verticals) vertical.show = visible;
@@ -133,21 +131,7 @@ export class AirspaceLayer {
         hierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(ring.flat())),
         height: airspace.minAlt,
         extrudedHeight: airspace.maxAlt,
-        material: color.withAlpha(0.1),
-        outline: false
-      }
-    });
-
-    // 顶面单独补一层实心填充：体积本身是封闭棱柱，顶面被两侧壁与底面稀释，单靠它看不出“面”。
-    // 抬高 1m 与体积顶面错开，避免共面 z-fighting。
-    const cap = viewer.entities.add({
-      id: `airspace:${suffix}:cap`,
-      name: airspace.name,
-      show: this.visible,
-      polygon: {
-        hierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(ring.flat())),
-        height: airspace.maxAlt + 1,
-        material: color.withAlpha(0.24),
+        material: color.withAlpha(0.28),
         outline: false
       }
     });
@@ -195,13 +179,12 @@ export class AirspaceLayer {
       })
     );
 
-    return { volume, cap, top, bottom, verticals };
+    return { volume, top, bottom, verticals };
   }
 
   private remove(view: AirspaceView): void {
     for (const part of view.parts) {
       this.viewer.entities.remove(part.volume);
-      this.viewer.entities.remove(part.cap);
       this.viewer.entities.remove(part.top);
       this.viewer.entities.remove(part.bottom);
       for (const vertical of part.verticals) this.viewer.entities.remove(vertical);
@@ -216,20 +199,16 @@ export class AirspaceLayer {
     const accent = alert ? red : color;
     const noFly = view.airspace.kind === 'no-fly';
 
-    // 顶面是主视觉：普通空域 0.2、禁飞 0.26，选中/告警再提亮一档。
-    const capAlpha = alert ? 0.3 : selected ? 0.32 : noFly ? 0.26 : 0.2;
-    // 体积（侧壁）只做辅助，太实会挡住建筑与底图。
-    const bodyAlpha = alert ? 0.12 : selected ? 0.12 : 0.08;
+    // 体积填充顶面与侧壁共用一份材质，只在这里统一定浓度。
+    // 禁飞本身够醒目，其余类别要再浓一些才看得清色块。
+    const base = noFly ? 0.28 : 0.34;
+    const bodyAlpha = alert ? 0.38 : selected ? Math.min(0.42, base + 0.06) : base;
 
     for (const part of view.parts) {
       if (part.volume.polygon) {
         part.volume.polygon.material = new Cesium.ColorMaterialProperty(
           (alert ? red : color).withAlpha(bodyAlpha)
         );
-      }
-
-      if (part.cap.polygon) {
-        part.cap.polygon.material = new Cesium.ColorMaterialProperty(accent.withAlpha(capAlpha));
       }
 
       if (part.top.polyline) {
