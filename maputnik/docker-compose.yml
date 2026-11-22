@@ -1,0 +1,10 @@
+services:
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    container_name: low-altitude-tileserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/data
+    command: ["--config", "/data/config.json", "--verbose"]
+    restart: unless-stopped

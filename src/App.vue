@@ -22,6 +22,7 @@ import {
   type Selection
 } from './cesium/LowAltitudeScene';
 import {
+  BASE_QUICK_OPTIONS,
   BASEMAP_OPTIONS,
   TIANDITU_READY,
   getBasemap,
@@ -1355,7 +1356,7 @@ onBeforeUnmount(() => {
         <header class="drawer-head">
           <div>
             <strong>底图与图面</strong>
-            <small>BASEMAP · 3 套方案</small>
+            <small>BASEMAP · {{ BASEMAP_OPTIONS.length }} 套方案</small>
           </div>
           <button class="icon-btn" type="button" title="关闭" @click="drawerOpen = false">
             <Icon name="x" :size="16" />
@@ -1694,7 +1695,7 @@ onBeforeUnmount(() => {
 
       <div class="basemaps">
         <button
-          v-for="item in BASEMAP_OPTIONS"
+          v-for="item in BASE_QUICK_OPTIONS"
           :key="item.id"
           type="button"
           class="bm-pill"

@@ -1,5 +1,14 @@
-export type BasemapStyle = 'dark' | 'light' | 'satellite' | 'custom';
-type StandardBasemapStyle = Exclude<BasemapStyle, 'custom'>;
+export type CustomBasemapStyle =
+  | 'custom'
+  | 'custom-paper'
+  | 'custom-azure'
+  | 'custom-slate'
+  | 'custom-contrast'
+  | 'custom-midnight'
+  | 'custom-night';
+
+export type BasemapStyle = 'dark' | 'light' | 'satellite' | CustomBasemapStyle;
+type StandardBasemapStyle = 'dark' | 'light' | 'satellite';
 
 export interface BasemapLayerConfig {
   url: string;
@@ -33,15 +42,80 @@ export const TIANDITU_READY = /^[A-Za-z0-9]{16,}$/.test(TIANDITU_KEY);
 
 /**
  * Maputnik / TileServer GL 自定义底图。
- * 在项目根目录 .env.local 写入：
- * VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
- * 重启 dev server 后底图菜单会出现“自定义地图”。
+ *
+ * 单套样式：
+ * VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
+ *
+ * 多套配色（推荐，底图菜单会出现 6 个选项）：
+ * VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
  */
 const CUSTOM_MAP_URL = String(import.meta.env.VITE_CUSTOM_MAP_URL ?? '').trim();
-export const CUSTOM_MAP_READY = /^(https?:\/\/|\/).+/.test(CUSTOM_MAP_URL);
+const CUSTOM_MAP_BASE_URL = String(import.meta.env.VITE_CUSTOM_MAP_BASE_URL ?? '')
+  .trim()
+  .replace(/\/+$/, '');
+export const CUSTOM_MAP_READY =
+  /^(https?:\/\/|\/).+/.test(CUSTOM_MAP_URL) || /^(https?:\/\/|\/).+/.test(CUSTOM_MAP_BASE_URL);
 const CUSTOM_MAP_CREDIT =
   String(import.meta.env.VITE_CUSTOM_MAP_CREDIT ?? '').trim() ||
   '© OpenMapTiles · © OpenStreetMap contributors';
+
+export const CUSTOM_STYLE_PRESETS: Array<{
+  id: CustomBasemapStyle;
+  style: string;
+  label: string;
+  short: string;
+  desc: string;
+  swatch: string;
+}> = [
+  {
+    id: 'custom-paper',
+    style: 'low-altitude-paper',
+    label: '暖灰纸感',
+    short: '暖灰',
+    desc: '低饱和暖灰，适合报告截图',
+    swatch: 'paper'
+  },
+  {
+    id: 'custom-azure',
+    style: 'low-altitude-azure',
+    label: '冷蓝政务',
+    short: '冷蓝',
+    desc: '清透冷蓝，接近政务系统',
+    swatch: 'azure'
+  },
+  {
+    id: 'custom-slate',
+    style: 'low-altitude-slate',
+    label: '中性灰',
+    short: '中性',
+    desc: '克制中性，突出业务图层',
+    swatch: 'slate'
+  },
+  {
+    id: 'custom-contrast',
+    style: 'low-altitude-contrast',
+    label: '教学高对比',
+    short: '高对比',
+    desc: '边界清晰，适合课堂投屏',
+    swatch: 'contrast'
+  },
+  {
+    id: 'custom-midnight',
+    style: 'low-altitude-midnight',
+    label: '深色指挥',
+    short: '深色',
+    desc: '深色底，适合大屏监看',
+    swatch: 'midnight'
+  },
+  {
+    id: 'custom-night',
+    style: 'low-altitude-night',
+    label: '深蓝夜航',
+    short: '夜航',
+    desc: '偏蓝夜色，适合夜间态势',
+    swatch: 'night'
+  }
+];
 
 const TDT_SUBDOMAINS = ['0', '1', '2', '3', '4', '5', '6', '7'];
 const TDT_CREDIT = '© 天地图 · 国家地理信息公共服务平台';
@@ -175,21 +249,43 @@ const ESRI: Record<StandardBasemapStyle, BasemapConfig> = {
 const CUSTOM: BasemapConfig = {
   id: 'custom',
   source: 'custom',
-  maxLevel: 19,
+  maxLevel: 14,
   credit: CUSTOM_MAP_CREDIT,
   globeColor: '#c9d5e4',
   sceneColor: '#eef2f7',
   layers: [
     {
-      url: CUSTOM_MAP_URL || 'http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png',
+      url: CUSTOM_MAP_URL || 'http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png',
       credit: CUSTOM_MAP_CREDIT
     }
   ]
 };
 
+function customStyleConfig(
+  id: BasemapStyle,
+  styleName: string,
+  maxLevel = 14
+): BasemapConfig {
+  const base = CUSTOM_MAP_BASE_URL || 'http://localhost:8080/styles';
+  return {
+    ...CUSTOM,
+    id,
+    maxLevel,
+    layers: [
+      {
+        url: `${base}/${styleName}/{z}/{x}/{y}.png`,
+        credit: CUSTOM_MAP_CREDIT
+      }
+    ]
+  };
+}
+
 export function getBasemap(style: BasemapStyle): BasemapConfig {
   if (style === 'custom') return CUSTOM;
-  return TIANDITU_READY ? TIANDITU[style] : ESRI[style];
+  const preset = CUSTOM_STYLE_PRESETS.find((item) => item.id === style);
+  if (preset) return customStyleConfig(preset.id, preset.style);
+  const standard = style as StandardBasemapStyle;
+  return TIANDITU_READY ? TIANDITU[standard] : ESRI[standard];
 }
 
 const STANDARD_BASEMAP_OPTIONS: Array<{
@@ -204,6 +300,8 @@ const STANDARD_BASEMAP_OPTIONS: Array<{
   { id: 'satellite', label: '卫星影像', short: '卫星', desc: '真实纹理，辅助研判', swatch: 'satellite' }
 ];
 
+export const BASE_QUICK_OPTIONS = STANDARD_BASEMAP_OPTIONS;
+
 export const BASEMAP_OPTIONS: Array<{
   id: BasemapStyle;
   label: string;
@@ -213,12 +311,22 @@ export const BASEMAP_OPTIONS: Array<{
 }> = CUSTOM_MAP_READY
   ? [
       ...STANDARD_BASEMAP_OPTIONS,
-      {
-        id: 'custom',
-        label: '自定义地图',
-        short: '自定义',
-        desc: 'Maputnik / TileServer GL',
-        swatch: 'custom'
-      }
+      ...(CUSTOM_MAP_BASE_URL
+        ? CUSTOM_STYLE_PRESETS.map((item) => ({
+            id: item.id,
+            label: item.label,
+            short: item.short,
+            desc: item.desc,
+            swatch: item.swatch
+          }))
+        : [
+            {
+              id: 'custom' as BasemapStyle,
+              label: '自定义地图',
+              short: '自定义',
+              desc: 'Maputnik / TileServer GL',
+              swatch: 'custom'
+            }
+          ])
     ]
   : STANDARD_BASEMAP_OPTIONS;

@@ -100,8 +100,17 @@ low-altitude-mvp/
 ├─ README.md                   # 使用说明、功能、运行方式
 ├─ ARCHITECTURE.md             # 本文档：架构与代码导读
 ├─ scripts/
-│  └─ copy-cesium.mjs          # 安装后把 Cesium 静态资源复制到 public/cesium
+│  ├─ copy-cesium.mjs          # 安装后把 Cesium 静态资源复制到 public/cesium
+│  ├─ build-basemap-styles.mjs # 生成 6 套 MapLibre style.json
+│  └─ export-basemap-tiles.mjs # 从 TileServer GL 导出静态 PNG 瓦片
+├─ maputnik/
+│  ├─ config.json              # TileServer GL 样式注册
+│  ├─ data/shenzhen.mbtiles    # 深圳 OpenMapTiles 数据
+│  ├─ fonts/                   # Noto Sans PBF 字形
+│  ├─ sprites/
+│  └─ styles/                  # paper / azure / slate / contrast / midnight / night
 ├─ public/
+│  ├─ basemap/                 # 预渲染的 6 套 PNG 瓦片
 │  ├─ cesium/                  # Cesium 静态资源（npm install 生成，git 忽略）
 │  ├─ favicon.svg              # 站点图标
 │  └─ models/                  # 预留：无人机 glTF / 3D Tiles 模型
@@ -126,7 +135,9 @@ low-altitude-mvp/
    │  ├─ scenario.ts          # 内置示例数据（空域 / 航线 / 无人机）与运动学函数
    │  ├─ airspaceStore.ts     # 空域数据层：响应式列表 + 增删改 + 版本号
    │  ├─ alerts.ts            # 告警时间线：按当前空域实时重算
-   │  └─ geometry.ts          # 纯几何：点在环内、重心、面积
+   │  ├─ geometry.ts          # 纯几何：点在环内、重心、面积
+   │  ├─ pathPlan.ts          # 二维栅格 A* + 视线简化
+   │  └─ geojsonImport.ts     # GeoJSON → 空域解析
    └─ cesium/
       ├─ LowAltitudeScene.ts  # Cesium 场景、无人机 / 航线 / 设施、拾取、相机、底图
       └─ AirspaceLayer.ts     # 空域渲染层：按 id 差异同步实体、选中 / 告警 / 显隐

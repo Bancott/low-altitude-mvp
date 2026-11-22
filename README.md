@@ -20,6 +20,7 @@
 - 左侧栏三个页签：空域 / 目标 / 告警
 - 路径规划：地图点选起终点，按高度绕开禁飞/限制区；可调速度、保存/载入方案
 - 浅色 / 深色 / 跟随系统主题，自动切换 Cesium 底图
+- 6 套自定义底图配色：暖灰纸感、冷蓝政务、中性灰、教学高对比、深色指挥、深蓝夜航
 - 自定义底图入口：Maputnik + TileServer GL 渲染色稿后接入 Cesium
 - 空域侵入、超出限高两类规则告警
 - 点击空域或目标，右侧出现浮动详情卡
@@ -101,6 +102,16 @@ VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
 
 配置后底图菜单会出现“自定义地图”。完整步骤（Maputnik 编辑 style.json、TileServer GL 渲染、Cesium 接入、CORS/部署排错）见 [MAPUTNIK_GUIDE.md](docs/MAPUTNIK_GUIDE.md)。
 
+当前仓库已经预先渲染了 6 套配色到 `public/basemap/`，所以默认 `.env` 使用：
+
+```dotenv
+VITE_CUSTOM_MAP_BASE_URL=/basemap
+```
+
+不需要启动 TileServer GL，页面也能直接切换这 6 套底图。
+
+![六套底图配色](docs/basemap-palettes.png)
+
 ## 界面预览
 
 ### 浅色主题
@@ -175,14 +186,22 @@ low-altitude-mvp/
 │  │  └─ alerts.ts                 # 告警时间线（随空域变更重算）
 │  ├─ styles.css                   # 设计令牌、明暗主题、组件样式
 │  └─ main.ts
+├─ maputnik/                        # 底图工具链
+│  ├─ config.json                   # TileServer GL 样式注册
+│  ├─ data/shenzhen.mbtiles         # 深圳 OpenMapTiles 数据
+│  ├─ fonts/                        # Noto Sans 字形
+│  └─ styles/                       # 6 套 MapLibre 样式
 ├─ public/
-│  ├─ cesium/                      # Cesium 静态资源（安装时生成）
-│  ├─ models/                      # 无人机 glTF
-│  ├─ data/                        # buildings.geojson、示例空域
+│  ├─ basemap/                      # 预渲染的 6 套静态 PNG 瓦片
+│  ├─ cesium/                       # Cesium 静态资源（安装时生成）
+│  ├─ models/                       # 无人机 glTF
+│  ├─ data/                         # buildings.geojson、示例空域
 │  └─ favicon.svg
 ├─ scripts/
-│  ├─ copy-cesium.mjs              # Cesium 资源复制脚本
-│  └─ extract-buildings.mjs        # 从 mbtiles 提取建筑轮廓
+│  ├─ build-basemap-styles.mjs      # 从配色表生成 6 套 style.json
+│  ├─ export-basemap-tiles.mjs      # 从 TileServer GL 导出静态瓦片
+│  ├─ copy-cesium.mjs               # Cesium 资源复制脚本
+│  └─ extract-buildings.mjs         # 从 mbtiles 提取建筑轮廓
 ├─ docs/                           # 预览截图
 └─ index.html
 ```

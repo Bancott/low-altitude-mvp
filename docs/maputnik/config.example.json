@@ -9,8 +9,28 @@
     }
   },
   "styles": {
-    "low-altitude": {
-      "style": "low-altitude/style.json"
+    "low-altitude-paper": {
+      "style": "paper/style.json"
+    },
+    "low-altitude-azure": {
+      "style": "azure/style.json"
+    },
+    "low-altitude-slate": {
+      "style": "slate/style.json"
+    },
+    "low-altitude-contrast": {
+      "style": "contrast/style.json"
+    },
+    "low-altitude-midnight": {
+      "style": "midnight/style.json"
+    },
+    "low-altitude-night": {
+      "style": "night/style.json"
+    }
+  },
+  "data": {
+    "shenzhen": {
+      "mbtiles": "shenzhen.mbtiles"
     }
   }
 }

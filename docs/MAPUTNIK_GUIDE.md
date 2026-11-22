@@ -19,7 +19,7 @@ Maputnik 编辑 style.json
         ↓
 TileServer GL 按样式渲染
         ↓
-/styles/low-altitude/{z}/{x}/{y}.png
+/styles/low-altitude-paper/{z}/{x}/{y}.png
         ↓
 Cesium UrlTemplateImageryProvider
         ↓
@@ -61,7 +61,7 @@ low-altitude-mvp/
 
 ```text
 config.example.json  → config.json
-style.example.json   → styles/low-altitude/style.json
+style.example.json   → styles/paper/style.json
 ```
 
 ---
@@ -110,26 +110,24 @@ maputnik/fonts/Noto Sans Regular/256-511.pbf
 
 ## 4. 启动 TileServer GL
 
-`config.json` 示例：
+项目已经提供六套配色和配置，直接复制：
 
-```json
-{
-  "options": {
-    "paths": {
-      "root": "/data",
-      "fonts": "fonts",
-      "sprites": "sprites",
-      "styles": "styles",
-      "mbtiles": "data"
-    }
-  },
-  "styles": {
-    "low-altitude": {
-      "style": "low-altitude/style.json"
-    }
-  }
-}
+```powershell
+Copy-Item docs\maputnik\config.example.json maputnik\config.json
 ```
+
+`maputnik/config.json` 包含：
+
+```text
+styles/low-altitude-paper
+styles/low-altitude-azure
+styles/low-altitude-slate
+styles/low-altitude-contrast
+styles/low-altitude-midnight
+styles/low-altitude-night
+```
+
+并且注册了 `data/shenzhen.mbtiles`。
 
 `docker-compose.yml` 示例：
 
@@ -168,8 +166,8 @@ http://localhost:8080
 先验证栅格瓦片是否能出图：
 
 ```text
-http://localhost:8080/styles/low-altitude/0/0/0.png
-http://localhost:8080/styles/low-altitude/12/3372/1746.png
+http://localhost:8080/styles/low-altitude-paper/0/0/0.png
+http://localhost:8080/styles/low-altitude-paper/12/3344/1784.png
 ```
 
 如果这两个地址返回图片，说明 TileServer GL 已经能按 `style.json` 渲染。
@@ -191,7 +189,7 @@ https://maputnik.github.io/editor/
 点击 `Open`，选择：
 
 ```text
-maputnik/styles/low-altitude/style.json
+maputnik/styles/paper/style.json
 ```
 
 ### 5.2 检查数据源
@@ -270,10 +268,10 @@ place               地名
 
 ### 5.5 导出
 
-Maputnik 右上角 `Export` → `Style JSON`，覆盖：
+Maputnik 右上角 `Export` → `Style JSON`，覆盖对应配色目录，例如：
 
 ```text
-maputnik/styles/low-altitude/style.json
+maputnik/styles/paper/style.json
 ```
 
 TileServer GL 会自动读取新文件；如果没刷新，重启容器：
@@ -285,7 +283,32 @@ docker compose restart
 再打开：
 
 ```text
-http://localhost:8080/styles/low-altitude/0/0/0.png
+http://localhost:8080/styles/low-altitude-paper/0/0/0.png
+```
+
+### 5.6 本项目已经准备好的 6 套配色
+
+`maputnik/styles/` 里已经有：
+
+| 目录 | 配色 | 适用场景 |
+|---|---|---|
+| `paper` | 暖灰纸感 | 报告截图、浅色底 |
+| `azure` | 冷蓝政务 | 政务系统、常规监看 |
+| `slate` | 中性灰 | 突出业务图层 |
+| `contrast` | 教学高对比 | 课堂投屏 |
+| `midnight` | 深色指挥 | 大屏监看 |
+| `night` | 深蓝夜航 | 夜间态势 |
+
+配色用脚本集中维护：
+
+```text
+scripts/build-basemap-styles.mjs
+```
+
+修改里面的 `palettes` 后重新运行：
+
+```powershell
+node scripts/build-basemap-styles.mjs
 ```
 
 ---
@@ -294,25 +317,26 @@ http://localhost:8080/styles/low-altitude/0/0/0.png
 
 项目已经预留了自定义底图入口。
 
-### 6.1 新建 `.env.local`
+### 6.1 配置 `.env.local`
 
-在 `low-altitude-mvp/` 根目录新建：
-
-```text
-.env.local
-```
-
-内容：
+live 模式（连接本地 TileServer GL）：
 
 ```dotenv
-VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
 VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
+```
+
+单套模式（只挂一个样式）可以用：
+
+```dotenv
+VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
 ```
 
 注意：
 
+- 多套样式用 `VITE_CUSTOM_MAP_BASE_URL`，底图菜单会一次出现 6 个配色；
 - 必须使用 `VITE_` 前缀；
-- `{z}`、`{x}`、`{y}` 原样保留，Cesium 会替换；
+- `{z}`、`{x}`、`{y}` 原样保留；
 - 修改 `.env.local` 后必须重启 `npm run dev`。
 
 ### 6.2 代码位置
@@ -326,12 +350,18 @@ src/config/basemaps.ts
 关键代码：
 
 ```ts
-const CUSTOM_MAP_URL = String(import.meta.env.VITE_CUSTOM_MAP_URL ?? '').trim();
+const CUSTOM_MAP_BASE_URL = String(import.meta.env.VITE_CUSTOM_MAP_BASE_URL ?? '')
+  .trim()
+  .replace(/\/+$/, '');
 
-export const CUSTOM_MAP_READY = /^https?:\/\/.+/.test(CUSTOM_MAP_URL);
+export const CUSTOM_MAP_READY = /^(https?:\/\/|\/).+/.test(CUSTOM_MAP_BASE_URL);
 ```
 
-当 `VITE_CUSTOM_MAP_URL` 存在时，底图菜单会自动多出“自定义地图”。
+底图菜单会自动出现：
+
+```text
+暖灰纸感 / 冷蓝政务 / 中性灰 / 教学高对比 / 深色指挥 / 深蓝夜航
+```
 
 Cesium 加载在：
 
@@ -350,7 +380,40 @@ new Cesium.UrlTemplateImageryProvider({
 });
 ```
 
-### 6.3 重启并选择
+### 6.3 本项目已经导出静态瓦片
+
+当前仓库已经把 6 套样式渲染到：
+
+```text
+public/basemap/
+├─ low-altitude-paper/
+├─ low-altitude-azure/
+├─ low-altitude-slate/
+├─ low-altitude-contrast/
+├─ low-altitude-midnight/
+└─ low-altitude-night/
+```
+
+默认 `.env` 使用：
+
+```dotenv
+VITE_CUSTOM_MAP_BASE_URL=/basemap
+```
+
+所以**不需要启动 TileServer GL**，`npm run dev` 后底图菜单就能直接切换 6 套配色。
+
+如果修改了 `style.json`，重新导出：
+
+```powershell
+# 1. 启动 TileServer GL（见第 4 节）
+# 2. 重新生成样式
+node scripts/build-basemap-styles.mjs
+
+# 3. 从 TileServer 导出静态 PNG 瓦片
+node scripts/export-basemap-tiles.mjs
+```
+
+### 6.4 重启并选择
 
 ```powershell
 cd D:\低空经济\low-altitude-mvp
@@ -359,46 +422,30 @@ npm run dev
 
 打开页面：
 
-1. 点击底图按钮；
-2. 选择“自定义地图”；
-3. 地图应该变成你在 Maputnik 里设计的样式。
+1. 点击右侧“底图”；
+2. 选择“暖灰纸感 / 冷蓝政务 / 中性灰 / 教学高对比 / 深色指挥 / 深蓝夜航”；
+3. 地图会切换为对应配色。
 
 ---
 
-## 7. 深色 / 浅色两套样式
+## 7. 六套配色怎么选
 
-建议在 TileServer GL 里放两个样式：
+| 配色 | 适合 |
+|---|---|
+| 暖灰纸感 | 课程报告、截图、浅色演示 |
+| 冷蓝政务 | 政务系统、正式汇报 |
+| 中性灰 | 突出空域/目标业务层 |
+| 教学高对比 | 课堂投屏、答辩讲解 |
+| 深色指挥 | 指挥中心大屏 |
+| 深蓝夜航 | 夜间态势、低光环境 |
+
+修改颜色只需要改：
 
 ```text
-styles/
-├─ low-altitude-light/style.json
-└─ low-altitude-dark/style.json
+scripts/build-basemap-styles.mjs
 ```
 
-`config.json`：
-
-```json
-{
-  "styles": {
-    "low-altitude": { "style": "low-altitude-light/style.json" },
-    "low-altitude-dark": { "style": "low-altitude-dark/style.json" }
-  }
-}
-```
-
-项目当前主题切换会自动切 Esri 暗色/浅色。如果要把自定义底图也接进主题切换，可以在 `App.vue` 的 `watch(resolvedTheme)` 里判断：
-
-```ts
-if (resolvedTheme.value === 'light') {
-  scene.value?.setBasemap('custom');
-} else {
-  scene.value?.setBasemap('custom-dark');
-}
-```
-
-这时需要把 `BasemapStyle` 扩展成 `custom-light | custom-dark`，或者用两个 URL 配置项。
-
-课程 MVP 阶段先用一套浅色自定义底图即可，深色主题继续用 Esri 暗色底图也完全可以。
+里面的 `palettes` 数组，然后重新生成并导出。
 
 ---
 
@@ -407,13 +454,13 @@ if (resolvedTheme.value === 'light') {
 开发时：
 
 ```text
-http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
 ```
 
 生产时不要继续用 `localhost`。建议：
 
 ```text
-https://你的域名/tiles/styles/low-altitude/{z}/{x}/{y}.png
+https://你的域名/tiles/styles/low-altitude-paper/{z}/{x}/{y}.png
 ```
 
 Nginx 反向代理示例：
@@ -429,7 +476,7 @@ location /tiles/ {
 然后把 `.env.production` 改成：
 
 ```dotenv
-VITE_CUSTOM_MAP_URL=https://你的域名/tiles/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_BASE_URL=https://你的域名/tiles/styles
 ```
 
 注意：
@@ -447,7 +494,7 @@ VITE_CUSTOM_MAP_URL=https://你的域名/tiles/styles/low-altitude/{z}/{x}/{y}.p
 检查：
 
 ```text
-http://localhost:8080/styles/low-altitude/0/0/0.png
+http://localhost:8080/styles/low-altitude-paper/0/0/0.png
 ```
 
 如果 404：
@@ -479,7 +526,7 @@ http://localhost:8080/styles/low-altitude/0/0/0.png
 
 ### 底图菜单没有“自定义地图”
 
-- `.env.local` 没有 `VITE_CUSTOM_MAP_URL`；
+- `.env.local` 没有 `VITE_CUSTOM_MAP_BASE_URL` 或 `VITE_CUSTOM_MAP_URL`；
 - 变量名不是 `VITE_` 开头；
 - 修改后没有重启 `npm run dev`；
 - `CUSTOM_MAP_READY` 的正则没有匹配到 `http://` 或 `https://`。
@@ -490,8 +537,8 @@ http://localhost:8080/styles/low-altitude/0/0/0.png
 
 做到下面几条，就可以认为底图接入完成：
 
-1. `http://localhost:8080/styles/low-altitude/0/0/0.png` 能返回图片；
-2. 页面底图菜单出现“自定义地图”；
+1. `http://localhost:8080/styles/low-altitude-paper/0/0/0.png` 能返回图片；
+2. 页面底图菜单出现 3 个标准底图 + 6 个自定义配色；
 3. 切换后 Cesium 能显示你设计的背景、水系、道路、建筑、地名；
 4. 空域、无人机、航线、告警仍然正常显示；
 5. 浏览器控制台没有 CORS / 404 错误；

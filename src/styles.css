@@ -1239,6 +1239,30 @@ html[data-theme='light'] .air-row.active {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
 }
 
+.base-swatch.paper {
+  background: linear-gradient(140deg, #f4f1ea, #e2dacd);
+}
+
+.base-swatch.azure {
+  background: linear-gradient(140deg, #eef3f8, #c5d9e8);
+}
+
+.base-swatch.slate {
+  background: linear-gradient(140deg, #f1f3f5, #c7d2db);
+}
+
+.base-swatch.contrast {
+  background: linear-gradient(90deg, #ffffff 0 45%, #bfddf0 45% 55%, #d9eed6 55% 100%);
+}
+
+.base-swatch.midnight {
+  background: linear-gradient(140deg, #080d15, #1b2b3f);
+}
+
+.base-swatch.night {
+  background: linear-gradient(140deg, #07111f, #0b2c42);
+}
+
 .base-copy {
   flex: 1;
   display: flex;
