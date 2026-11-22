@@ -575,7 +575,7 @@ export class LowAltitudeScene {
   }
 
   /** 加载建筑轮廓并按高度挤出（单个 Primitive 批量绘制，避免上千个 Entity） */
-  async loadBuildings(url = '/data/buildings.geojson'): Promise<number> {
+  async loadBuildings(url = `${import.meta.env.BASE_URL}data/buildings.geojson`): Promise<number> {
     if (!this.viewer) return 0;
     try {
       const response = await fetch(url);
@@ -1018,7 +1018,7 @@ export class LowAltitudeScene {
           false
         ),
         model: {
-          uri: '/models/uav.glb',
+          uri: `${import.meta.env.BASE_URL}models/uav.glb`,
           scale: new Cesium.CallbackProperty(() => (view.selected ? 0.12 : 0.1), false),
           minimumPixelSize: 44,
           maximumScale: 400,

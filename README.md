@@ -54,7 +54,7 @@
 | 主题 | CSS 变量 + `useTheme.ts` + `prefers-color-scheme` |
 | 图标 | 手写 SVG 图标组件 |
 | 数据 | 前端模拟数据 + 运动学插值 |
-| 底图 | Esri 公共底图服务（演示用） |
+| 底图 | 天地图（key）/ Esri 回退 / 6 套国画自定义底图 |
 | 构建 | Vite |
 
 ## 运行
@@ -79,6 +79,31 @@ http://localhost:5173
 npm run typecheck   # TypeScript 类型检查
 npm run build       # 生产构建
 npm run preview     # 预览构建结果
+```
+
+## GitHub Pages 部署
+
+项目是纯前端，已经加好 GitHub Actions：
+
+1. 推送到 GitHub 的 `main` / `master`；
+2. 仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**；
+3. 在 **Settings → Secrets and variables → Actions** 新建 Secret：`VITE_TIANDITU_KEY`；
+4. workflow 会自动执行 `npm ci && npm run build` 并发布 `dist`。
+
+项目页会自动使用 `/<仓库名>/` 作为 base；如果仓库是 `<用户名>.github.io`，自动使用 `/`。不需要手动改路径。
+
+说明：
+
+- Pages 是纯静态托管，**6 套国画底图依赖本地 TileServer GL，线上默认关闭**；
+- 线上用天地图 key 即可获得高精度中文底图；
+- 如果以后有公网瓦片服务，在仓库 **Variables** 里设置 `VITE_CUSTOM_MAP_BASE_URL`，6 套配色会重新出现；
+- `.nojekyll` 已放在 `public/`，避免 Pages 忽略 Cesium 的下划线资源。
+
+手动构建项目页时：
+
+```powershell
+$env:VITE_BASE_PATH='/你的仓库名/'
+npm run build
 ```
 
 `npm install` 会把 Cesium 的 `Assets`、`Workers`、`Widgets`、`ThirdParty` 复制到 `public/cesium/`，无需手动处理。

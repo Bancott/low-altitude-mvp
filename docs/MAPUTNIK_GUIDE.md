@@ -445,6 +445,9 @@ scripts/build-basemap-styles.mjs
 
 ## 8. 生产部署
 
+> GitHub Pages 是纯静态托管，**不能运行 TileServer GL**。线上部署建议直接使用天地图 key；如果一定要线上显示国画底图，需要把导出的静态瓦片放进 `public/basemap`，或把 TileServer 部署到一台可公网访问的服务器。
+
+
 开发时：
 
 ```text
