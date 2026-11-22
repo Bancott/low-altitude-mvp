@@ -190,7 +190,6 @@ VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
 ## 目录结构
 
 ```text
-low-altitude-mvp/
 ├─ ARCHITECTURE.md                  # 架构、文件职责、学习路线
 ├─ src/
 │  ├─ App.vue                      # 顶栏、侧栏、详情卡、时间轴、交互

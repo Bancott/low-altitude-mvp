@@ -37,7 +37,6 @@ Cesium UrlTemplateImageryProvider
 目录建议：
 
 ```text
-low-altitude-mvp/
 └─ maputnik/
    ├─ config.json
    ├─ docker-compose.yml
@@ -57,7 +56,7 @@ low-altitude-mvp/
 - `style.example.json`
 - `docker-compose.yml`
 
-把它们复制到 `low-altitude-mvp/maputnik/`，再改文件名：
+把它们复制到 `maputnik/`，再改文件名：
 
 ```text
 config.example.json  → config.json

@@ -92,7 +92,6 @@ index.html
 ## 4. 目录与文件职责
 
 ```text
-low-altitude-mvp/
 ├─ index.html                  # HTML 入口；内联主题脚本；挂载点
 ├─ package.json                # 依赖与脚本
 ├─ vite.config.ts              # Vite 配置
@@ -469,13 +468,13 @@ orientation: new Cesium.VelocityOrientationProperty(position)
 
 ## 9. Git 工作流
 
-当前仓库根目录是 `D:\低空经济`，项目在 `low-altitude-mvp/`。
+当前仓库根目录是 `D:\低空经济\low-altitude-mvp`。
 
 常用命令：
 
 ```bash
 git status
-git add low-altitude-mvp
+git add .
 git commit -m "feat: redesign airspace console UI"
 git log --oneline
 ```
