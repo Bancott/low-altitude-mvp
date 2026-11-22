@@ -140,6 +140,7 @@ let dirty = true;
 let toastTimer: number | undefined;
 let glitchTimer: number | undefined;
 let glitchHold: number | undefined;
+let realTimer: number | undefined;
 let parallaxFrame = 0;
 
 simTime.value = INITIAL_TIME;
@@ -182,6 +183,24 @@ const selectedAirspaceMeta = computed(() =>
 
 const clock = computed(() => formatClock(simTime.value));
 const dateLabel = formatDate(0);
+
+// 顶栏使用真实时间；底部时间轴仍然显示模拟时间。
+const realNow = ref(new Date());
+const realClockFormatter = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+  timeZone: 'Asia/Shanghai'
+});
+const realDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  weekday: 'short',
+  timeZone: 'Asia/Shanghai'
+});
+const realClock = computed(() => realClockFormatter.format(realNow.value));
+const realDateLabel = computed(() => realDateFormatter.format(realNow.value));
 const activeAlertCount = computed(() => activeAlerts.value.length);
 
 const tabIndex = computed(() => {
@@ -501,8 +520,51 @@ const routeMode = ref(false);
 const routeFrom = ref<[number, number] | null>(null);
 const routeTo = ref<[number, number] | null>(null);
 const routeAlt = ref(100);
+const routeSpeed = ref(15);
 const routeResult = ref<PlanResult | null>(null);
 const routePicking = ref<'from' | 'to' | null>(null);
+
+interface SavedRoutePlan {
+  id: string;
+  name: string;
+  from: [number, number];
+  to: [number, number];
+  alt: number;
+  speed: number;
+  result: PlanResult;
+  createdAt: number;
+}
+
+const ROUTE_STORAGE_KEY = 'lat-route-plans';
+
+function readSavedRoutes(): SavedRoutePlan[] {
+  try {
+    const raw = window.localStorage.getItem(ROUTE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is SavedRoutePlan =>
+        item &&
+        typeof item.id === 'string' &&
+        Array.isArray(item.from) &&
+        Array.isArray(item.to) &&
+        item.result?.ok === true
+    );
+  } catch {
+    return [];
+  }
+}
+
+const savedRoutes = ref<SavedRoutePlan[]>(readSavedRoutes());
+
+function persistSavedRoutes(): void {
+  try {
+    window.localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(savedRoutes.value));
+  } catch {
+    // localStorage 不可用时只保留当前会话
+  }
+}
 
 const routeDistanceLabel = computed(() =>
   routeResult.value?.ok ? `${(routeResult.value.distance / 1000).toFixed(2)} km` : ''
@@ -510,7 +572,7 @@ const routeDistanceLabel = computed(() =>
 
 const routeTimeLabel = computed(() => {
   if (!routeResult.value?.ok) return '';
-  const minutes = routeResult.value.distance / 15 / 60;
+  const minutes = routeResult.value.distance / Math.max(1, routeSpeed.value) / 60;
   return minutes < 1 ? `${Math.round(minutes * 60)} 秒` : `${minutes.toFixed(1)} 分钟`;
 });
 
@@ -574,6 +636,47 @@ function runRoutePlan(): void {
     scene.value?.clearRouteLine();
     showToast(result.reason || '规划失败', 'warn');
   }
+}
+
+function saveCurrentRoute(): void {
+  if (!routeFrom.value || !routeTo.value || !routeResult.value?.ok) {
+    showToast('先完成一条可通行路径', 'info');
+    return;
+  }
+  const plan: SavedRoutePlan = {
+    id: `plan-${Date.now()}`,
+    name: `规划方案 ${savedRoutes.value.length + 1}`,
+    from: [...routeFrom.value] as [number, number],
+    to: [...routeTo.value] as [number, number],
+    alt: routeAlt.value,
+    speed: routeSpeed.value,
+    result: { ...routeResult.value, path: routeResult.value.path.map((point) => [...point] as [number, number]) },
+    createdAt: Date.now()
+  };
+  savedRoutes.value = [plan, ...savedRoutes.value].slice(0, 8);
+  persistSavedRoutes();
+  showToast(`已保存 ${plan.name}`, 'success');
+}
+
+function loadSavedRoute(plan: SavedRoutePlan): void {
+  exitFpv(true);
+  if (drawingAirspace.value) cancelDraw();
+  followId.value = null;
+  scene.value?.stopFollow();
+  routeMode.value = true;
+  routeFrom.value = plan.from;
+  routeTo.value = plan.to;
+  routeAlt.value = plan.alt;
+  routeSpeed.value = plan.speed;
+  routeResult.value = plan.result;
+  scene.value?.setRouteMarkers(plan.from, plan.to);
+  scene.value?.showRoute(plan.result.path, plan.alt);
+  showToast(`已载入 ${plan.name}`, 'success');
+}
+
+function deleteSavedRoute(id: string): void {
+  savedRoutes.value = savedRoutes.value.filter((plan) => plan.id !== id);
+  persistSavedRoutes();
 }
 
 const importEl = ref<HTMLInputElement | null>(null);
@@ -894,7 +997,13 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(async () => {
-  await nextTick();  if (!mapEl.value) return;
+  realNow.value = new Date();
+  realTimer = window.setInterval(() => {
+    realNow.value = new Date();
+  }, 1000);
+
+  await nextTick();
+  if (!mapEl.value) return;
 
   try {
     const instance = new LowAltitudeScene(mapEl.value, {
@@ -941,6 +1050,7 @@ onBeforeUnmount(() => {
   if (toastTimer) window.clearTimeout(toastTimer);
   if (glitchTimer) window.clearTimeout(glitchTimer);
   if (glitchHold) window.clearTimeout(glitchHold);
+  if (realTimer) window.clearInterval(realTimer);
   window.removeEventListener('pointermove', onPointerMove);
   window.removeEventListener('keydown', onKeydown);
   scene.value?.destroy();
@@ -1014,8 +1124,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="clock">
-          <strong>{{ clock }}</strong>
-          <span>{{ dateLabel }}</span>
+          <strong>{{ realClock }}</strong>
+          <span>{{ realDateLabel }}</span>
         </div>
 
         <button
@@ -1095,6 +1205,22 @@ onBeforeUnmount(() => {
               <small>二维 A*，按高度绕开禁飞与限制区</small>
             </span>
           </button>
+
+          <div v-if="savedRoutes.length" class="saved-routes">
+            <div class="saved-routes-head">
+              <span>已保存方案</span>
+              <small>{{ savedRoutes.length }}</small>
+            </div>
+            <div v-for="plan in savedRoutes" :key="plan.id" class="saved-route">
+              <button type="button" class="saved-route-main" @click="loadSavedRoute(plan)">
+                <strong>{{ plan.name }}</strong>
+                <small>{{ (plan.result.distance / 1000).toFixed(2) }} km · {{ plan.alt }} m · {{ plan.result.path.length }} 点</small>
+              </button>
+              <button type="button" class="saved-route-del" title="删除方案" @click.stop="deleteSavedRoute(plan.id)">
+                ×
+              </button>
+            </div>
+          </div>
           <input
             ref="importEl"
             type="file"
@@ -1532,9 +1658,15 @@ onBeforeUnmount(() => {
           <input v-model.number="routeAlt" type="number" min="0" max="300" step="10" />
           <span>m</span>
         </label>
+        <label class="route-alt">
+          速度
+          <input v-model.number="routeSpeed" type="number" min="5" max="30" step="1" />
+          <span>m/s</span>
+        </label>
         <button type="button" class="primary" :disabled="!routeFrom || !routeTo" @click="runRoutePlan">
           规划
         </button>
+        <button type="button" :disabled="!routeResult?.ok" @click="saveCurrentRoute">保存</button>
         <span v-if="routeResult?.ok" class="route-summary">
           {{ routeDistanceLabel }} · 约 {{ routeTimeLabel }}<template v-if="routeResult.blockedBy.length"> · 绕开 {{ routeResult.blockedBy.length }} 个限制区</template>
         </span>

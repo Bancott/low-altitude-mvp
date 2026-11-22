@@ -1,0 +1,16 @@
+{
+  "options": {
+    "paths": {
+      "root": "/data",
+      "fonts": "fonts",
+      "sprites": "sprites",
+      "styles": "styles",
+      "mbtiles": "data"
+    }
+  },
+  "styles": {
+    "low-altitude": {
+      "style": "low-altitude/style.json"
+    }
+  }
+}

@@ -16,8 +16,12 @@
 - 滚轮缩放、拖拽平移、倾斜视角
 - 4 个空域体：管制空域、适飞空域、临时禁飞区、临时限制区
 - 10 架模拟无人机：物流、巡检、安防、应急四类任务
-- 空域侵入、超出限高两类规则告警
+- 顶栏实时时间（Asia/Shanghai），底部时间轴保持模拟时间
 - 左侧栏三个页签：空域 / 目标 / 告警
+- 路径规划：地图点选起终点，按高度绕开禁飞/限制区；可调速度、保存/载入方案
+- 浅色 / 深色 / 跟随系统主题，自动切换 Cesium 底图
+- 自定义底图入口：Maputnik + TileServer GL 渲染色稿后接入 Cesium
+- 空域侵入、超出限高两类规则告警
 - 点击空域或目标，右侧出现浮动详情卡
 - 空域名称不常驻地图；只有选中目标才显示目标标签
 - 右侧图层柱：空域、航线、目标、尾迹、告警统一开关，带状态珠与标签
@@ -86,7 +90,16 @@ npm run preview     # 预览构建结果
 cp .env.example .env.local   # 写入 VITE_TIANDITU_KEY=你的key
 ```
 
-key 在 [天地图控制台](https://console.tianditu.gov.cn/) 申请（应用类型选「浏览器端」）。改完需重启 dev server。后续接 Maputnik 自制底图时，只需在 `basemaps.ts` 里把对应图层的 `url` 换成本地 TileServer GL 的地址，场景代码不用动。
+key 在 [天地图控制台](https://console.tianditu.gov.cn/) 申请（应用类型选「浏览器端」）。改完需重启 dev server。
+
+自定义底图同样走 `.env.local`：
+
+```dotenv
+VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
+```
+
+配置后底图菜单会出现“自定义地图”。完整步骤（Maputnik 编辑 style.json、TileServer GL 渲染、Cesium 接入、CORS/部署排错）见 [MAPUTNIK_GUIDE.md](docs/MAPUTNIK_GUIDE.md)。
 
 ## 界面预览
 
@@ -118,6 +131,7 @@ key 在 [天地图控制台](https://console.tianditu.gov.cn/) 申请（应用�
 | 点击空域/目标 | 地图定位，右侧出现详情卡 |
 | 详情卡右上角 × | 关闭详情卡 |
 | 顶栏太阳/月亮/显示器 | 浅色 / 深色 / 跟随系统 |
+| 顶栏时钟 | 显示 Asia/Shanghai 实时时间；底部时间轴仍显示模拟时间 |
 | 顶栏右侧布局按钮 | 收起 / 展开侧栏 |
 | 右侧图层柱 | 开关空域、航线、目标、尾迹、告警 |
 | 右侧「底图」 | 打开底图抽屉，切换底图、进入底图设计 |
@@ -133,7 +147,7 @@ key 在 [天地图控制台](https://console.tianditu.gov.cn/) 申请（应用�
 | 详情卡“第一视角” | 进入机头视角（Esc 退出），`+ / −` 调整视场角 |
 | 空域页签顶部“手绘新增” | 自动切到二维；支持自由多边形（双击/右键闭合）、矩形（两点）、圆形（圆心+圆周），可连续画多块；完成后填名称/类型/高度 |
 | 空域页签顶部“导入 GeoJSON” | 选择 `.geojson/.json`，支持 FeatureCollection / Feature / Polygon / MultiPolygon，自动读取 `kind`、`minAlt/maxAlt`（或 `height`）等属性，导入后可删除 |
-| 空域页签“最短路径规划” | 地图点选起点与终点，设定高度后按二维 A* 规划，结果给出距离、预计耗时与绕开的限制区 |
+| 空域页签“最短路径规划” | 地图点选起点与终点，设定高度/速度后按二维 A* 规划，结果给出距离、预计耗时与绕开的限制区；可保存/载入方案 |
 | 详情卡“删除空域” | 删除手绘或导入的空域（内置示例不可删） |
 | 右侧“建筑体块” | 开关 3D 建筑（约 3600 栋，来自本地 OSM 切片） |
 
@@ -184,6 +198,7 @@ low-altitude-mvp/
 - 空域是可序列化的纯数据（`Airspace`），渲染层 `AirspaceLayer` 按 id 差异同步实体，因此手绘、导入、删除都会自动反映到地图与告警；
 - 告警事件随空域版本号重算，时间轴色带同步更新；
 - 路径规划只依赖 `Airspace[]`，不依赖 Cesium：格网 8 邻域 A*，斜向不允许贴角穿越，再用按 20 m 采样的视线简化拉直；
+- 规划结果按设定速度估算耗时，可保存到浏览器 `localStorage`，重新打开页面后仍能载入（最多保留 8 条）；
 - 建筑轮廓来自本地 `shenzhen.mbtiles`（z16，OpenMapTiles `building` 图层），带 `render_height`，由 `scripts/extract-buildings.mjs` 导出为 GeoJSON，运行时用单个 Primitive 批量挤出；OSM 在国内的建筑面积覆盖并不完整，缺数据的片区会偏空；
 - 初始时间会自动定位到第一个严重告警窗口。
 

@@ -1,0 +1,88 @@
+{
+  "version": 8,
+  "name": "Low Altitude Light",
+  "metadata": {
+    "low-altitude:theme": "light",
+    "low-altitude:note": "示例底图样式，业务空域仍由 Cesium 叠加"
+  },
+  "sources": {
+    "openmaptiles": {
+      "type": "vector",
+      "url": "http://localhost:8080/data/shenzhen.json"
+    }
+  },
+  "glyphs": "http://localhost:8080/fonts/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#f3f5f8"
+      }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "water",
+      "paint": {
+        "fill-color": "#c9d6e2"
+      }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landuse",
+      "paint": {
+        "fill-color": "#e8edf3"
+      }
+    },
+    {
+      "id": "roads-casing",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "paint": {
+        "line-color": "#d8e0ea",
+        "line-width": 2.2
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 1.2
+      }
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "building",
+      "paint": {
+        "fill-color": "#e5e7eb",
+        "fill-opacity": 0.85
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "openmaptiles",
+      "source-layer": "place",
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12
+      },
+      "paint": {
+        "text-color": "#475569",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    }
+  ]
+}

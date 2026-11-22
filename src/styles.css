@@ -1232,6 +1232,13 @@ html[data-theme='light'] .air-row.active {
   background: linear-gradient(140deg, #23301f, #3f4a2f 55%, #1b2a33);
 }
 
+.base-swatch.custom {
+  background:
+    linear-gradient(140deg, rgba(37, 99, 235, 0.18), transparent 55%),
+    repeating-linear-gradient(135deg, #e9eef5 0 8px, #dbe4ee 8px 16px);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+}
+
 .base-copy {
   flex: 1;
   display: flex;
@@ -3083,6 +3090,102 @@ html[data-theme='light'] .bm-pill.active {
 }
 
 /* 路径规划入口与工具条 ------------------------------------------------ */
+.route-bar {
+  width: 1120px;
+}
+
+.route-bar .route-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-routes {
+  margin-top: 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.saved-routes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.saved-routes-head small {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-route {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-radius: 7px;
+}
+
+.saved-route + .saved-route {
+  margin-top: 2px;
+}
+
+.saved-route-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-route-main:hover {
+  background: var(--hover);
+}
+
+.saved-route-main strong {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-route-main small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-route-del {
+  width: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.saved-route-del:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .route-entry {
   display: flex;
   align-items: center;

@@ -106,6 +106,8 @@ low-altitude-mvp/
 │  ├─ favicon.svg              # 站点图标
 │  └─ models/                  # 预留：无人机 glTF / 3D Tiles 模型
 ├─ docs/
+│  ├─ MAPUTNIK_GUIDE.md         # Maputnik + TileServer GL 接入指南
+│  ├─ maputnik/                 # 示例 style/config/docker-compose
 │  ├─ preview-light.png         # README 截图
 │  ├─ preview-dark.png
 │  ├─ preview-detail.png
@@ -137,8 +139,9 @@ low-altitude-mvp/
 页面级“总控”，负责：
 
 - 页面结构：悬浮顶栏、可收起侧栏、按需出现的详情卡、右侧图层柱、底图抽屉、底栏时间轴、底图设计弹窗；
-- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`sidebarTab`、`sidebarOpen`、`layerState`、`drawerOpen`、`glitch`；
-- 交互：侧栏页签、播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、图层柱、底图抽屉、主题切换、侧栏收起、缩放；
+- 状态：`simTime`、`isPlaying`、`speed`、`selected`、`sidebarTab`、`sidebarOpen`、`layerState`、`drawerOpen`、`routeMode`、`routeFrom/routeTo/routeAlt/routeSpeed`、`savedRoutes`、`glitch`；
+- 交互：侧栏页签、播放/暂停、拖动时间轴、搜索、定位、跟随、2D/3D、图层柱、底图抽屉、主题切换、侧栏收起、缩放、路径规划；
+- 时间：顶栏 `realClock/realDateLabel` 每秒刷新真实时间（Asia/Shanghai）；底部 `clock` 仍然来自 `simTime`，不受真实时间影响；
 - 动效：`useAmbientParticles` 环境粒子、指针视差（`--px/--py`）、页签滑块、列表交错、告警故障闪；
 - 与 Cesium 的连接：调用 `scene.update()`、`scene.select()`、`scene.focus()`、`scene.setLayerVisible()`；
 - 计算派生数据：`selectedDronePos`、`activeAlerts`、`targetRows`、`alertListAll`。
@@ -388,21 +391,27 @@ html[data-theme='dark'] {
 
 ### 8.4 替换底图
 
-当前 `LowAltitudeScene.setBasemap()` 使用 Esri：
+底图配置集中在 `src/config/basemaps.ts`。默认使用 Esri；配置天地图 key 后自动使用天地图。
+
+已预留 Maputnik + TileServer GL 自定义底图入口。`.env.local`：
+
+```dotenv
+VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
+```
+
+`CUSTOM_MAP_READY` 为真时，底图菜单出现“自定义地图”。Cesium 侧仍然通过：
 
 ```ts
 new Cesium.UrlTemplateImageryProvider({
-  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/...'
+  url: layer.url,
+  maximumLevel: config.maxLevel,
+  tilingScheme: new Cesium.WebMercatorTilingScheme(),
+  credit: new Cesium.Credit(layer.credit)
 });
 ```
 
-后续替换为 Maputnik + TileServer GL 时，只需要改这里的 URL：
-
-```ts
-new Cesium.UrlTemplateImageryProvider({
-  url: 'http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png'
-});
-```
+完整操作步骤见 [MAPUTNIK_GUIDE.md](docs/MAPUTNIK_GUIDE.md)。
 
 ### 8.5 接入 3D 建筑（3D Tiles）
 
@@ -532,6 +541,13 @@ git log --oneline
 7. 返回距离、简化前后点数、展开节点数、以及"直线会穿过的限制区"用于解释绕行原因。
 
 `LowAltitudeScene` 只负责画：主航线 + 光晕 + 起终点落地垂线 + A/B 标记。
+
+`App.vue` 在规划结果之上补了业务层：
+
+- 高度与速度输入，耗时按 `distance / speed` 估算；
+- 保存方案到 `localStorage`（最多 8 条），可重新载入继续查看；
+- 保存后显示距离、高度、航点数量，删除方案只影响本地记录；
+- 路径规划只改变“规划航线”，不会修改现有无人机的固定航线。
 
 ### 12.3 建筑
 
