@@ -108,7 +108,7 @@ low-altitude-mvp/
 │  ├─ data/shenzhen.mbtiles    # 深圳 OpenMapTiles 数据
 │  ├─ fonts/                   # Noto Sans PBF 字形
 │  ├─ sprites/
-│  └─ styles/                  # paper / azure / slate / contrast / midnight / night
+│  └─ styles/                  # qianli / wutai / youchun / qiuse / danfeng / qixu
 ├─ public/
 │  ├─ basemap/                 # 预渲染的 6 套 PNG 瓦片
 │  ├─ cesium/                  # Cesium 静态资源（npm install 生成，git 忽略）
@@ -179,7 +179,7 @@ Cesium 场景封装，负责：
 
 ```ts
 type Selection = { kind: 'drone' | 'airspace'; id: string } | null;
-type BasemapStyle = 'dark' | 'light' | 'satellite';
+type BasemapStyle = 'dark' | 'light' | 'satellite' | CustomBasemapStyle;
 type CameraInfo = { lon: number; lat: number; height: number; heading: number };
 ```
 
@@ -407,7 +407,7 @@ html[data-theme='dark'] {
 已预留 Maputnik + TileServer GL 自定义底图入口。`.env.local`：
 
 ```dotenv
-VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
 VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
 ```
 

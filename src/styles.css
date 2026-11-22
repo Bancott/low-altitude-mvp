@@ -1239,28 +1239,28 @@ html[data-theme='light'] .air-row.active {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
 }
 
-.base-swatch.paper {
-  background: linear-gradient(140deg, #f4f1ea, #e2dacd);
+.base-swatch.qianli {
+  background: linear-gradient(140deg, #ede6d4 0 45%, #7fa8b0 45% 72%, #8fae8a 72% 100%);
 }
 
-.base-swatch.azure {
-  background: linear-gradient(140deg, #eef3f8, #c5d9e8);
+.base-swatch.wutai {
+  background: linear-gradient(140deg, #e8d9bf, #b5623e 58%, #6f8f9a);
 }
 
-.base-swatch.slate {
-  background: linear-gradient(140deg, #f1f3f5, #c7d2db);
+.base-swatch.youchun {
+  background: linear-gradient(140deg, #f0ebdd, #94b7be 55%, #a7be9a);
 }
 
-.base-swatch.contrast {
-  background: linear-gradient(90deg, #ffffff 0 45%, #bfddf0 45% 55%, #d9eed6 55% 100%);
+.base-swatch.qiuse {
+  background: linear-gradient(140deg, #efe3cf, #c2a37f 55%, #b65a32);
 }
 
-.base-swatch.midnight {
-  background: linear-gradient(140deg, #080d15, #1b2b3f);
+.base-swatch.danfeng {
+  background: linear-gradient(140deg, #e9dcc8, #8e2f2a 55%, #4f6b52);
 }
 
-.base-swatch.night {
-  background: linear-gradient(140deg, #07111f, #0b2c42);
+.base-swatch.qixu {
+  background: linear-gradient(140deg, #f6efe3, #c98a8f 55%, #a9bfa5);
 }
 
 .base-copy {

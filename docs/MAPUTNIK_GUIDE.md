@@ -19,7 +19,7 @@ Maputnik 编辑 style.json
         ↓
 TileServer GL 按样式渲染
         ↓
-/styles/low-altitude-paper/{z}/{x}/{y}.png
+/styles/low-altitude-qianli/{z}/{x}/{y}.png
         ↓
 Cesium UrlTemplateImageryProvider
         ↓
@@ -61,7 +61,7 @@ low-altitude-mvp/
 
 ```text
 config.example.json  → config.json
-style.example.json   → styles/paper/style.json
+style.example.json   → styles/qianli/style.json
 ```
 
 ---
@@ -119,12 +119,12 @@ Copy-Item docs\maputnik\config.example.json maputnik\config.json
 `maputnik/config.json` 包含：
 
 ```text
-styles/low-altitude-paper
-styles/low-altitude-azure
-styles/low-altitude-slate
-styles/low-altitude-contrast
-styles/low-altitude-midnight
-styles/low-altitude-night
+styles/low-altitude-qianli
+styles/low-altitude-wutai
+styles/low-altitude-youchun
+styles/low-altitude-qiuse
+styles/low-altitude-danfeng
+styles/low-altitude-qixu
 ```
 
 并且注册了 `data/shenzhen.mbtiles`。
@@ -166,8 +166,8 @@ http://localhost:8080
 先验证栅格瓦片是否能出图：
 
 ```text
-http://localhost:8080/styles/low-altitude-paper/0/0/0.png
-http://localhost:8080/styles/low-altitude-paper/12/3344/1784.png
+http://localhost:8080/styles/low-altitude-qianli/0/0/0.png
+http://localhost:8080/styles/low-altitude-qianli/12/3344/1784.png
 ```
 
 如果这两个地址返回图片，说明 TileServer GL 已经能按 `style.json` 渲染。
@@ -189,7 +189,7 @@ https://maputnik.github.io/editor/
 点击 `Open`，选择：
 
 ```text
-maputnik/styles/paper/style.json
+maputnik/styles/qianli/style.json
 ```
 
 ### 5.2 检查数据源
@@ -271,7 +271,7 @@ place               地名
 Maputnik 右上角 `Export` → `Style JSON`，覆盖对应配色目录，例如：
 
 ```text
-maputnik/styles/paper/style.json
+maputnik/styles/qianli/style.json
 ```
 
 TileServer GL 会自动读取新文件；如果没刷新，重启容器：
@@ -283,7 +283,7 @@ docker compose restart
 再打开：
 
 ```text
-http://localhost:8080/styles/low-altitude-paper/0/0/0.png
+http://localhost:8080/styles/low-altitude-qianli/0/0/0.png
 ```
 
 ### 5.6 本项目已经准备好的 6 套配色
@@ -292,12 +292,12 @@ http://localhost:8080/styles/low-altitude-paper/0/0/0.png
 
 | 目录 | 配色 | 适用场景 |
 |---|---|---|
-| `paper` | 暖灰纸感 | 报告截图、浅色底 |
-| `azure` | 冷蓝政务 | 政务系统、常规监看 |
-| `slate` | 中性灰 | 突出业务图层 |
-| `contrast` | 教学高对比 | 课堂投屏 |
-| `midnight` | 深色指挥 | 大屏监看 |
-| `night` | 深蓝夜航 | 夜间态势 |
+| `qianli` | 千里江山 | 青绿山水、报告截图 |
+| `wutai` | 五台山图 | 敦煌矿物色、正式汇报 |
+| `youchun` | 游春图 | 春日青绿、轻量演示 |
+| `qiuse` | 江山秋色 | 秋山赭色、课堂讲解 |
+| `danfeng` | 丹枫呦鹿 | 丹枫深林、强调对比 |
+| `qixu` | 绮序舒芳 | 花卉册页、柔和浅色 |
 
 配色用脚本集中维护：
 
@@ -329,7 +329,7 @@ VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
 单套模式（只挂一个样式）可以用：
 
 ```dotenv
-VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-qianli/{z}/{x}/{y}.png
 ```
 
 注意：
@@ -360,7 +360,7 @@ export const CUSTOM_MAP_READY = /^(https?:\/\/|\/).+/.test(CUSTOM_MAP_BASE_URL);
 底图菜单会自动出现：
 
 ```text
-暖灰纸感 / 冷蓝政务 / 中性灰 / 教学高对比 / 深色指挥 / 深蓝夜航
+千里江山 / 五台山图 / 游春图 / 江山秋色 / 丹枫呦鹿 / 绮序舒芳
 ```
 
 Cesium 加载在：
@@ -380,38 +380,32 @@ new Cesium.UrlTemplateImageryProvider({
 });
 ```
 
-### 6.3 本项目已经导出静态瓦片
+### 6.3 为什么能放大到 z16
 
-当前仓库已经把 6 套样式渲染到：
+项目使用 **live TileServer GL**，不是静态图片金字塔：
 
 ```text
-public/basemap/
-├─ low-altitude-paper/
-├─ low-altitude-azure/
-├─ low-altitude-slate/
-├─ low-altitude-contrast/
-├─ low-altitude-midnight/
-└─ low-altitude-night/
+Cesium 请求 /styles/low-altitude-qianli/{z}/{x}/{y}.png
+  → TileServer GL 从 shenzhen.mbtiles 取矢量瓦片
+  → 按 style.json 实时渲染 PNG
 ```
 
-默认 `.env` 使用：
+所以不需要预渲染 z15/z16，也不会在放大后拉伸 z14 图片。Cesium 端设置：
 
-```dotenv
-VITE_CUSTOM_MAP_BASE_URL=/basemap
+```ts
+maximumLevel: 16
 ```
 
-所以**不需要启动 TileServer GL**，`npm run dev` 后底图菜单就能直接切换 6 套配色。
+数据 `shenzhen.mbtiles` 本身支持到 z16，地图放到街道级仍然清晰。
 
-如果修改了 `style.json`，重新导出：
+如果要离线交付，才需要运行：
 
 ```powershell
-# 1. 启动 TileServer GL（见第 4 节）
-# 2. 重新生成样式
-node scripts/build-basemap-styles.mjs
-
-# 3. 从 TileServer 导出静态 PNG 瓦片
+# 可选：把当前 6 套样式预渲染为静态瓦片
 node scripts/export-basemap-tiles.mjs
 ```
+
+默认不提交静态瓦片，避免上万张 PNG 占用空间。
 
 ### 6.4 重启并选择
 
@@ -423,7 +417,7 @@ npm run dev
 打开页面：
 
 1. 点击右侧“底图”；
-2. 选择“暖灰纸感 / 冷蓝政务 / 中性灰 / 教学高对比 / 深色指挥 / 深蓝夜航”；
+2. 选择“千里江山 / 五台山图 / 游春图 / 江山秋色 / 丹枫呦鹿 / 绮序舒芳”；
 3. 地图会切换为对应配色。
 
 ---
@@ -432,12 +426,12 @@ npm run dev
 
 | 配色 | 适合 |
 |---|---|
-| 暖灰纸感 | 课程报告、截图、浅色演示 |
-| 冷蓝政务 | 政务系统、正式汇报 |
-| 中性灰 | 突出空域/目标业务层 |
-| 教学高对比 | 课堂投屏、答辩讲解 |
-| 深色指挥 | 指挥中心大屏 |
-| 深蓝夜航 | 夜间态势、低光环境 |
+| 千里江山 | 青绿山水、课程报告、截图 |
+| 五台山图 | 敦煌矿物色、正式汇报 |
+| 游春图 | 春日青绿、轻量演示 |
+| 江山秋色 | 秋山赭色、课堂讲解 |
+| 丹枫呦鹿 | 丹枫深林、强调对比 |
+| 绮序舒芳 | 花卉册页、柔和浅色 |
 
 修改颜色只需要改：
 
@@ -454,13 +448,13 @@ scripts/build-basemap-styles.mjs
 开发时：
 
 ```text
-http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
+http://localhost:8080/styles/low-altitude-qianli/{z}/{x}/{y}.png
 ```
 
 生产时不要继续用 `localhost`。建议：
 
 ```text
-https://你的域名/tiles/styles/low-altitude-paper/{z}/{x}/{y}.png
+https://你的域名/tiles/styles/low-altitude-qianli/{z}/{x}/{y}.png
 ```
 
 Nginx 反向代理示例：
@@ -494,7 +488,7 @@ VITE_CUSTOM_MAP_BASE_URL=https://你的域名/tiles/styles
 检查：
 
 ```text
-http://localhost:8080/styles/low-altitude-paper/0/0/0.png
+http://localhost:8080/styles/low-altitude-qianli/0/0/0.png
 ```
 
 如果 404：
@@ -537,7 +531,7 @@ http://localhost:8080/styles/low-altitude-paper/0/0/0.png
 
 做到下面几条，就可以认为底图接入完成：
 
-1. `http://localhost:8080/styles/low-altitude-paper/0/0/0.png` 能返回图片；
+1. `http://localhost:8080/styles/low-altitude-qianli/0/0/0.png` 能返回图片；
 2. 页面底图菜单出现 3 个标准底图 + 6 个自定义配色；
 3. 切换后 Cesium 能显示你设计的背景、水系、道路、建筑、地名；
 4. 空域、无人机、航线、告警仍然正常显示；

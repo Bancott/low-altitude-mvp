@@ -20,8 +20,8 @@
 - 左侧栏三个页签：空域 / 目标 / 告警
 - 路径规划：地图点选起终点，按高度绕开禁飞/限制区；可调速度、保存/载入方案
 - 浅色 / 深色 / 跟随系统主题，自动切换 Cesium 底图
-- 6 套自定义底图配色：暖灰纸感、冷蓝政务、中性灰、教学高对比、深色指挥、深蓝夜航
-- 自定义底图入口：Maputnik + TileServer GL 渲染色稿后接入 Cesium
+- 6 套中国画配色：千里江山、五台山图、游春图、江山秋色、丹枫呦鹿、绮序舒芳
+- 自定义底图支持 **z16 级细节**：Maputnik 调色，TileServer GL 按需渲染
 - 空域侵入、超出限高两类规则告警
 - 点击空域或目标，右侧出现浮动详情卡
 - 空域名称不常驻地图；只有选中目标才显示目标标签
@@ -96,21 +96,21 @@ key 在 [天地图控制台](https://console.tianditu.gov.cn/) 申请（应用�
 自定义底图同样走 `.env.local`：
 
 ```dotenv
-VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude/{z}/{x}/{y}.png
+VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
 VITE_CUSTOM_MAP_CREDIT=© OpenMapTiles · © OpenStreetMap contributors
 ```
 
-配置后底图菜单会出现“自定义地图”。完整步骤（Maputnik 编辑 style.json、TileServer GL 渲染、Cesium 接入、CORS/部署排错）见 [MAPUTNIK_GUIDE.md](docs/MAPUTNIK_GUIDE.md)。
+启动 `./start-all.ps1` 后底图菜单会出现 6 套中国画配色。完整步骤（Maputnik 编辑 style.json、TileServer GL 渲染、Cesium 接入、CORS/部署排错）见 [MAPUTNIK_GUIDE.md](docs/MAPUTNIK_GUIDE.md)。
 
-当前仓库已经预先渲染了 6 套配色到 `public/basemap/`，所以默认 `.env` 使用：
+当前默认使用 live 瓦片服务：
 
 ```dotenv
-VITE_CUSTOM_MAP_BASE_URL=/basemap
+VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
 ```
 
-不需要启动 TileServer GL，页面也能直接切换这 6 套底图。
+瓦片按需渲染到 z16，放大后仍然清晰。
 
-![六套底图配色](docs/basemap-palettes.png)
+![六套国画配色](docs/basemap-palettes.png)
 
 ## 界面预览
 

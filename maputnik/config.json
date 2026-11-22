@@ -9,23 +9,23 @@
     }
   },
   "styles": {
-    "low-altitude-paper": {
-      "style": "paper/style.json"
+    "low-altitude-qianli": {
+      "style": "qianli/style.json"
     },
-    "low-altitude-azure": {
-      "style": "azure/style.json"
+    "low-altitude-wutai": {
+      "style": "wutai/style.json"
     },
-    "low-altitude-slate": {
-      "style": "slate/style.json"
+    "low-altitude-youchun": {
+      "style": "youchun/style.json"
     },
-    "low-altitude-contrast": {
-      "style": "contrast/style.json"
+    "low-altitude-qiuse": {
+      "style": "qiuse/style.json"
     },
-    "low-altitude-midnight": {
-      "style": "midnight/style.json"
+    "low-altitude-danfeng": {
+      "style": "danfeng/style.json"
     },
-    "low-altitude-night": {
-      "style": "night/style.json"
+    "low-altitude-qixu": {
+      "style": "qixu/style.json"
     }
   },
   "data": {

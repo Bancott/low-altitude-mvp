@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const STYLES = ['paper', 'azure', 'slate', 'contrast', 'midnight', 'night'];
 const BOUNDS = { w: 113.82, e: 114.03, s: 22.44, n: 22.62 };
-const MAX_ZOOM = Number(process.env.TILE_MAX_ZOOM || 14);
+const MAX_ZOOM = Number(process.env.TILE_MAX_ZOOM || 16);
 const OUT = path.resolve('public/basemap');
 const BASE = process.env.TILE_SERVER ?? 'http://localhost:8080';
 

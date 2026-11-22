@@ -1,11 +1,11 @@
 export type CustomBasemapStyle =
   | 'custom'
-  | 'custom-paper'
-  | 'custom-azure'
-  | 'custom-slate'
-  | 'custom-contrast'
-  | 'custom-midnight'
-  | 'custom-night';
+  | 'custom-qianli'
+  | 'custom-wutai'
+  | 'custom-youchun'
+  | 'custom-qiuse'
+  | 'custom-danfeng'
+  | 'custom-qixu';
 
 export type BasemapStyle = 'dark' | 'light' | 'satellite' | CustomBasemapStyle;
 type StandardBasemapStyle = 'dark' | 'light' | 'satellite';
@@ -44,7 +44,7 @@ export const TIANDITU_READY = /^[A-Za-z0-9]{16,}$/.test(TIANDITU_KEY);
  * Maputnik / TileServer GL 自定义底图。
  *
  * 单套样式：
- * VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png
+ * VITE_CUSTOM_MAP_URL=http://localhost:8080/styles/low-altitude-qianli/{z}/{x}/{y}.png
  *
  * 多套配色（推荐，底图菜单会出现 6 个选项）：
  * VITE_CUSTOM_MAP_BASE_URL=http://localhost:8080/styles
@@ -68,52 +68,52 @@ export const CUSTOM_STYLE_PRESETS: Array<{
   swatch: string;
 }> = [
   {
-    id: 'custom-paper',
-    style: 'low-altitude-paper',
-    label: '暖灰纸感',
-    short: '暖灰',
-    desc: '低饱和暖灰，适合报告截图',
-    swatch: 'paper'
+    id: 'custom-qianli',
+    style: 'low-altitude-qianli',
+    label: '千里江山',
+    short: '千里',
+    desc: '石青石绿，青绿山水',
+    swatch: 'qianli'
   },
   {
-    id: 'custom-azure',
-    style: 'low-altitude-azure',
-    label: '冷蓝政务',
-    short: '冷蓝',
-    desc: '清透冷蓝，接近政务系统',
-    swatch: 'azure'
+    id: 'custom-wutai',
+    style: 'low-altitude-wutai',
+    label: '五台山图',
+    short: '五台',
+    desc: '敦煌矿物颜料，赭石朱砂',
+    swatch: 'wutai'
   },
   {
-    id: 'custom-slate',
-    style: 'low-altitude-slate',
-    label: '中性灰',
-    short: '中性',
-    desc: '克制中性，突出业务图层',
-    swatch: 'slate'
+    id: 'custom-youchun',
+    style: 'low-altitude-youchun',
+    label: '游春图',
+    short: '游春',
+    desc: '春日青绿，轻盈绢色',
+    swatch: 'youchun'
   },
   {
-    id: 'custom-contrast',
-    style: 'low-altitude-contrast',
-    label: '教学高对比',
-    short: '高对比',
-    desc: '边界清晰，适合课堂投屏',
-    swatch: 'contrast'
+    id: 'custom-qiuse',
+    style: 'low-altitude-qiuse',
+    label: '江山秋色',
+    short: '秋色',
+    desc: '秋山赭色，温润沉稳',
+    swatch: 'qiuse'
   },
   {
-    id: 'custom-midnight',
-    style: 'low-altitude-midnight',
-    label: '深色指挥',
-    short: '深色',
-    desc: '深色底，适合大屏监看',
-    swatch: 'midnight'
+    id: 'custom-danfeng',
+    style: 'low-altitude-danfeng',
+    label: '丹枫呦鹿',
+    short: '丹枫',
+    desc: '丹枫、鹿褐与深林',
+    swatch: 'danfeng'
   },
   {
-    id: 'custom-night',
-    style: 'low-altitude-night',
-    label: '深蓝夜航',
-    short: '夜航',
-    desc: '偏蓝夜色，适合夜间态势',
-    swatch: 'night'
+    id: 'custom-qixu',
+    style: 'low-altitude-qixu',
+    label: '绮序舒芳',
+    short: '绮序',
+    desc: '花卉册页，清妍设色',
+    swatch: 'qixu'
   }
 ];
 
@@ -249,13 +249,13 @@ const ESRI: Record<StandardBasemapStyle, BasemapConfig> = {
 const CUSTOM: BasemapConfig = {
   id: 'custom',
   source: 'custom',
-  maxLevel: 14,
+  maxLevel: 16,
   credit: CUSTOM_MAP_CREDIT,
   globeColor: '#c9d5e4',
   sceneColor: '#eef2f7',
   layers: [
     {
-      url: CUSTOM_MAP_URL || 'http://localhost:8080/styles/low-altitude-paper/{z}/{x}/{y}.png',
+      url: CUSTOM_MAP_URL || 'http://localhost:8080/styles/low-altitude-qianli/{z}/{x}/{y}.png',
       credit: CUSTOM_MAP_CREDIT
     }
   ]
@@ -264,7 +264,7 @@ const CUSTOM: BasemapConfig = {
 function customStyleConfig(
   id: BasemapStyle,
   styleName: string,
-  maxLevel = 14
+  maxLevel = 16
 ): BasemapConfig {
   const base = CUSTOM_MAP_BASE_URL || 'http://localhost:8080/styles';
   return {
